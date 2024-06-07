@@ -1,0 +1,49 @@
+{
+    "family": "QA_MEDIATOR_TASKDEFINITION",
+    "containerDefinitions": [
+        {
+            "name": "mediator",
+            "image": "%REPOSITORY_URI%:MEDIATOR_V_%BUILD_NUMBER%",
+            "cpu": 1024,
+            "memory": 2048,
+            "portMappings": [
+                {
+                    "containerPort": 3000,
+                    "hostPort": 3000,
+                    "protocol": "tcp"
+                }
+            ],
+            "essential": true,
+            "environment": [],
+            "environmentFiles": [
+                {
+                    "value": "arn:aws:s3:::env-qabucket/mediator.env",
+                    "type": "s3"
+                }
+            ],
+            "mountPoints": [],
+            "volumesFrom": [],
+            "ulimits": [],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-create-group": "true",
+                    "awslogs-group": "/ecs/QA_MEDIATOR_TASKDEFINITION",
+                    "awslogs-region": "ap-southeast-1",
+                    "awslogs-stream-prefix": "ecs"
+                },
+                "secretOptions": []
+            }
+        }
+        
+    ],
+   
+    "executionRoleArn": "arn:aws:iam::id:role/ecsTaskExecutionRole",
+    "networkMode": "awsvpc",
+    "placementConstraints": [],
+    "requiresCompatibilities": [
+        "FARGATE"
+    ],
+    "cpu": "1024",
+    "memory": "2048"
+}

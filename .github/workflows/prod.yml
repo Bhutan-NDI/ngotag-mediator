@@ -1,4 +1,4 @@
-name: Build and deploy Mediator to ECS
+name: Build and deploy PROD Mediator to ECS
 
 on:
   push:

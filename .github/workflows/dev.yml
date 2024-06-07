@@ -1,9 +1,9 @@
-name: Build and deploy Mediator to ECS
+name: Build and deploy DEV Mediator to ECS
 
 on:
-  push:
-    tags:
-      - 'qa-*'
+    push:
+      branches:
+        - main
     
     
 env:

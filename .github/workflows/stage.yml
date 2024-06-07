@@ -1,4 +1,4 @@
-name: Build and deploy Mediator to ECS
+name: Build and deploy STAGE Mediator to ECS
 
 on:
   push:

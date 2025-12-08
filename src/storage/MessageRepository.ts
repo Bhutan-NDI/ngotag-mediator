@@ -20,7 +20,7 @@ export class MessageRepository extends Repository<MessageRecord> {
     super(MessageRecord, storageService, eventEmitter)
   }
 
-  public findByConnectionId(agentContext: AgentContext, connectionId: string) {
-    return this.findByQuery(agentContext, { connectionId })
+  public findByConnectionId(agentContext: AgentContext, connectionId: string, limit?: number) {
+    return this.findByQuery(agentContext, { connectionId }, { limit })
   }
 }

@@ -48,7 +48,10 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
   public async takeFromQueue(options: TakeFromQueueOptions): Promise<QueuedMessage[]> {
     const { connectionId, limit, deleteMessages } = options
 
-    const messageRecords = await this.messageRepository.findByConnectionId(this.agentContext, connectionId)
+    // Default to 100 if no limit is provided to prevent OOM
+    const queryLimit = limit ?? 100
+
+    const messageRecords = await this.messageRepository.findByConnectionId(this.agentContext, connectionId, queryLimit)
 
     const messagesToTake = limit ?? messageRecords.length
     this.agentContext.config.logger.debug(

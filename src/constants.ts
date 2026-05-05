@@ -26,3 +26,5 @@ export const IS_DEV = process.env.NODE_ENV === 'development'
 export const USE_PUSH_NOTIFICATIONS = process.env.USE_PUSH_NOTIFICATIONS === 'true'
 
 export const NOTIFICATION_WEBHOOK_URL = process.env.NOTIFICATION_WEBHOOK_URL || 'http://localhost:5000'
+
+export const MESSAGE_FORWARDING_STRATEGY = process.env.MESSAGE_FORWARDING_STRATEGY

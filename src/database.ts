@@ -7,7 +7,7 @@ export const askarPostgresConfig: AskarWalletPostgresStorageConfig = {
   type: 'postgres',
   config: {
     host: POSTGRES_HOST as string,
-    connectTimeout: 10,
+    connectTimeout: 10000,
   },
   credentials: {
     account: POSTGRES_USER as string,

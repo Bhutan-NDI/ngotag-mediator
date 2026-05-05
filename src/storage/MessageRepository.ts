@@ -20,7 +20,8 @@ export class MessageRepository extends Repository<MessageRecord> {
     super(MessageRecord, storageService, eventEmitter)
   }
 
-  public findByConnectionId(agentContext: AgentContext, connectionId: string) {
-    return this.findByQuery(agentContext, { connectionId })
+  public async findByConnectionId(agentContext: AgentContext, connectionId: string) {
+    const records = await this.findByQuery(agentContext, { connectionId })
+    return records.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
 }

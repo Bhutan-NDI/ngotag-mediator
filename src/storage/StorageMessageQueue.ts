@@ -92,7 +92,7 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
 
     // Send a notification to the device
     if (USE_PUSH_NOTIFICATIONS && NOTIFICATION_WEBHOOK_URL) {
-      await this.sendNotification(this.agentContext, connectionId, messageType)
+      void this.sendNotification(this.agentContext, connectionId, messageType)
     }
 
     return id

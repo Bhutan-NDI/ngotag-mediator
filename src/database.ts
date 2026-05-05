@@ -1,13 +1,16 @@
 import type { AskarWalletPostgresStorageConfig } from '@credo-ts/askar/build/wallet'
 
-import { POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_HOST } from './constants'
+import { POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_HOST,WALLET_DB_MAX_CONNECTIONS, WALLET_DB_MIN_CONNECTIONS, WALLET_DB_IDLE_TIMEOUT, WALLET_DB_CONNECT_TIMEOUT } from './constants'
 
 export const askarPostgresConfig: AskarWalletPostgresStorageConfig = {
   // AskarWalletPostgresStorageConfig defines interface for the Postgres plugin configuration.
   type: 'postgres',
   config: {
     host: POSTGRES_HOST as string,
-    connectTimeout: 10,
+    maxConnections: WALLET_DB_MAX_CONNECTIONS,
+    minConnections: WALLET_DB_MIN_CONNECTIONS,
+    idleTimeout: WALLET_DB_IDLE_TIMEOUT,
+    connectTimeout: WALLET_DB_CONNECT_TIMEOUT,
   },
   credentials: {
     account: POSTGRES_USER as string,

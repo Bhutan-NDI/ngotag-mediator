@@ -19,7 +19,9 @@ export const POSTGRES_ADMIN_PASSWORD = process.env.POSTGRES_ADMIN_PASSWORD
 
 export const INVITATION_URL = process.env.INVITATION_URL
 
-export const LOG_LEVEL = LogLevel.debug
+export const LOG_LEVEL = process.env.LOG_LEVEL
+? (LogLevel[process.env.LOG_LEVEL as keyof typeof LogLevel] ?? LogLevel.debug)
+: LogLevel.debug 
 
 export const IS_DEV = process.env.NODE_ENV === 'development'
 

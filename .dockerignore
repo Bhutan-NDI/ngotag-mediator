@@ -1,0 +1,16 @@
+.git
+.gitignore
+.DS_Store
+
+node_modules
+build
+coverage
+
+.env
+.env.*
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+.vscode

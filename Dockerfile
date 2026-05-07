@@ -1,25 +1,11 @@
-FROM ubuntu:20.04 as base
+FROM node:18-bullseye AS base
 
-ENV DEBIAN_FRONTEND noninteractive
-
-RUN apt-get update -y && apt-get install -y \
-  apt-transport-https \
-  curl \
-  make \
-  gcc \
-  g++
-
-# nodejs
-RUN curl -sL https://deb.nodesource.com/setup_18.x | bash
-
-# install depdencies and enable corepack
-RUN apt-get update -y && apt-get install -y --allow-unauthenticated nodejs
 RUN corepack enable
 
 # Set cache dir so it can be shared between different docker stages
 RUN yarn config set cache-folder /tmp/yarn-cache
 
-FROM base as setup
+FROM base AS setup
 
 # AFJ specifc setup
 WORKDIR /www
@@ -39,7 +25,7 @@ COPY . /www
 
 RUN yarn build
 
-FROM base as final
+FROM base AS final
 
 WORKDIR /www
 

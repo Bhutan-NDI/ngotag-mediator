@@ -44,7 +44,7 @@ jobs:
           curl -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
             https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG_NAME
           exit 1
-    
+  
       - name: Checkout Repository
         uses: actions/checkout@v2
 

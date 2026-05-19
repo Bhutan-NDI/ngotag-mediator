@@ -40,30 +40,29 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
   public async getAvailableMessageCount(options: GetAvailableMessageCountOptions) {
     const { connectionId } = options
 
-    const messageRecords = await this.messageRepository.findByConnectionId(this.agentContext, connectionId)
-
-    return messageRecords.length
+    return this.messageRepository.countByConnectionId(this.agentContext, connectionId)
   }
 
   public async takeFromQueue(options: TakeFromQueueOptions): Promise<QueuedMessage[]> {
     const { connectionId, limit, deleteMessages } = options
 
-    const messageRecords = await this.messageRepository.findByConnectionId(this.agentContext, connectionId)
-
-    const messagesToTake = limit ?? messageRecords.length
-    this.agentContext.config.logger.debug(
-      `Taking ${messagesToTake} messages from queue for connection ${connectionId} (of total ${
-        messageRecords.length
-      }) with deleteMessages=${String(deleteMessages)}`
-    )
-
-    const messageRecordsToReturn = messageRecords.splice(0, messagesToTake)
-
-    if (deleteMessages) {
-      this.removeMessages({ connectionId, messageIds: messageRecordsToReturn.map((msg) => msg.id) })
+    if (limit === 0) {
+      return []
     }
 
-    const queuedMessages = messageRecordsToReturn.map((messageRecord) => ({
+    const messageRecords = await this.messageRepository.findByConnectionId(this.agentContext, connectionId, limit)
+
+    this.agentContext.config.logger.debug(
+      `Taking ${messageRecords.length} messages from queue for connection ${connectionId} with deleteMessages=${String(
+        deleteMessages
+      )}`
+    )
+
+    if (deleteMessages) {
+      this.removeMessages({ connectionId, messageIds: messageRecords.map((msg) => msg.id) })
+    }
+
+    const queuedMessages = messageRecords.map((messageRecord) => ({
       id: messageRecord.id,
       receivedAt: messageRecord.createdAt,
       encryptedMessage: messageRecord.message,
@@ -92,7 +91,7 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
 
     // Send a notification to the device
     if (USE_PUSH_NOTIFICATIONS && NOTIFICATION_WEBHOOK_URL) {
-      await this.sendNotification(this.agentContext, connectionId, messageType)
+      void this.sendNotification(this.agentContext, connectionId, messageType)
     }
 
     return id

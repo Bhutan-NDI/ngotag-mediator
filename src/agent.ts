@@ -19,11 +19,41 @@ import type { Socket } from 'net'
 import express from 'express'
 import { Server } from 'ws'
 
-import { AGENT_ENDPOINTS, AGENT_NAME, AGENT_PORT, LOG_LEVEL, POSTGRES_HOST, WALLET_KEY, WALLET_NAME } from './constants'
+import { AGENT_ENDPOINTS, AGENT_NAME, AGENT_PORT, LOG_LEVEL, POSTGRES_HOST, WALLET_KEY, WALLET_NAME, MESSAGE_FORWARDING_STRATEGY } from './constants'
 import { askarPostgresConfig } from './database'
 import { Logger } from './logger'
 import { StorageMessageQueueModule } from './storage/StorageMessageQueueModule'
 import { PushNotificationsFcmModule } from './push-notifications/fcm'
+import { MessageForwardingStrategy } from '@credo-ts/core/build/modules/routing/MessageForwardingStrategy'
+
+function getForwardingStrategy(): MessageForwardingStrategy {
+  const logger = new Logger(LOG_LEVEL)
+
+  const strategy = MESSAGE_FORWARDING_STRATEGY;
+
+  if (!strategy) {
+    return MessageForwardingStrategy.DirectDelivery;
+  }
+
+  const normalized = strategy.toLowerCase().trim();
+
+  if (normalized === MessageForwardingStrategy.QueueAndLiveModeDelivery.toLowerCase()) {
+    return MessageForwardingStrategy.QueueAndLiveModeDelivery;
+  }
+
+  if (normalized === MessageForwardingStrategy.QueueOnly.toLowerCase()) {
+    return MessageForwardingStrategy.QueueOnly;
+  }
+
+  if (normalized === MessageForwardingStrategy.DirectDelivery.toLowerCase()) {
+    return MessageForwardingStrategy.DirectDelivery;
+  }
+
+  logger.warn(
+    `Unknown MEDIATOR_MESSAGE_FORWARDING_STRATEGY "${strategy}". Falling back to DirectDelivery.`
+  );
+  return MessageForwardingStrategy.DirectDelivery;
+}
 
 function createModules() {
   const modules = {
@@ -36,6 +66,7 @@ function createModules() {
     }),
     mediator: new MediatorModule({
       autoAcceptMediationRequests: true,
+      messageForwardingStrategy: getForwardingStrategy()
     }),
     askar: new AskarModule({
       ariesAskar,

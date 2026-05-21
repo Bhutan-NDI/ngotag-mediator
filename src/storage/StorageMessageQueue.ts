@@ -7,12 +7,13 @@ import type {
   MessagePickupRepository,
 } from '@credo-ts/core'
 
-import { injectable, AgentContext, utils } from '@credo-ts/core'
+import { injectable, AgentContext, utils, LogLevel } from '@credo-ts/core'
 
 import { MessageRecord } from './MessageRecord'
 import { MessageRepository } from './MessageRepository'
 import { PushNotificationsFcmRepository } from '../push-notifications/fcm/repository'
 import { NOTIFICATION_WEBHOOK_URL, USE_PUSH_NOTIFICATIONS } from '../constants'
+import { emitStructured, makeSpanId, monoNow, durationMs } from '../logger/StructuredLogger'
 import fetch from 'node-fetch'
 
 export interface NotificationMessage {
@@ -50,6 +51,16 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       return []
     }
 
+    const spanId = makeSpanId()
+    const startMono = monoNow()
+    emitStructured(LogLevel.info, {
+      hop: 'mediator.pickup.batch.dispatch.start',
+      flow: 'pickup',
+      span_id: spanId,
+      conn_id: connectionId,
+      pickup_limit: limit,
+    })
+
     const messageRecords = await this.messageRepository.findByConnectionId(this.agentContext, connectionId, limit)
 
     this.agentContext.config.logger.debug(
@@ -68,6 +79,16 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       encryptedMessage: messageRecord.message,
     }))
 
+    emitStructured(LogLevel.info, {
+      hop: 'mediator.pickup.batch.dispatch.end',
+      flow: 'pickup',
+      span_id: spanId,
+      conn_id: connectionId,
+      duration_ms: durationMs(startMono),
+      message_count: queuedMessages.length,
+      delete_messages: deleteMessages ?? false,
+    })
+
     return queuedMessages
   }
 
@@ -77,6 +98,25 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
     this.agentContext.config.logger.debug(
       `Adding message to queue for connection ${connectionId} with payload ${JSON.stringify(payload)}`
     )
+
+    // Log the forward strategy decision: this method is called only when queuing is chosen.
+    emitStructured(LogLevel.info, {
+      hop: 'mediator.forward.strategy.decision',
+      flow: 'verification',
+      conn_id: connectionId,
+      outer_msg_id: '',
+      decision: 'queue',
+    })
+
+    const spanId = makeSpanId()
+    const startMono = monoNow()
+    emitStructured(LogLevel.info, {
+      hop: 'mediator.queue.write.start',
+      flow: 'verification',
+      span_id: spanId,
+      conn_id: connectionId,
+      outer_msg_id: '',
+    })
 
     const id = utils.uuid()
 
@@ -88,6 +128,17 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
         message: payload,
       })
     )
+
+    const queueDepth = await this.messageRepository.countByConnectionId(this.agentContext, connectionId)
+    emitStructured(LogLevel.info, {
+      hop: 'mediator.queue.write.end',
+      flow: 'verification',
+      span_id: spanId,
+      conn_id: connectionId,
+      outer_msg_id: '',
+      duration_ms: durationMs(startMono),
+      queue_depth_after: queueDepth,
+    })
 
     // Send a notification to the device
     if (USE_PUSH_NOTIFICATIONS && NOTIFICATION_WEBHOOK_URL) {
@@ -127,7 +178,22 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       }
 
       this.agentContext.config.logger.info(`Sending notification to ${pushNotificationFcmRecord?.connectionId}`)
+      const pushSpanId = makeSpanId()
+      const pushStart = monoNow()
+      emitStructured(LogLevel.info, {
+        hop: 'mediator.push.send.start',
+        flow: 'verification',
+        span_id: pushSpanId,
+        conn_id: connectionId,
+      })
       await this.processNotification(message)
+      emitStructured(LogLevel.info, {
+        hop: 'mediator.push.send.end',
+        flow: 'verification',
+        span_id: pushSpanId,
+        conn_id: connectionId,
+        duration_ms: durationMs(pushStart),
+      })
       this.agentContext.config.logger.info(`Notification sent successfully to ${connectionId}`)
     } catch (error) {
       this.agentContext.config.logger.error(`Error sending notification`, {

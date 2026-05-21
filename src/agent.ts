@@ -23,7 +23,7 @@ import { Server } from 'ws'
 import { AGENT_ENDPOINTS, AGENT_NAME, AGENT_PORT, LOG_LEVEL, POSTGRES_HOST, WALLET_KEY, WALLET_NAME, MESSAGE_FORWARDING_STRATEGY, WALLET_DB_MAX_CONNECTIONS, WALLET_DB_MIN_CONNECTIONS, WALLET_DB_IDLE_TIMEOUT, WALLET_DB_CONNECT_TIMEOUT, USE_PUSH_NOTIFICATIONS } from './constants'
 import { askarPostgresConfig } from './database'
 import { Logger } from './logger'
-import { emitStructured } from './logger/StructuredLogger'
+import { emitStructured, makeSpanId, monoNow, tryExtractRecipientKeyShort } from './logger/StructuredLogger'
 import { StorageMessageQueueModule } from './storage/StorageMessageQueueModule'
 import { PushNotificationsFcmModule } from './push-notifications/fcm'
 import { MessageForwardingStrategy } from '@credo-ts/core/build/modules/routing/MessageForwardingStrategy'
@@ -132,6 +132,65 @@ export async function createAgent() {
   const httpOutboundTransport = new HttpOutboundTransport()
   const wsInboundTransport = new WsInboundTransport({ server: socketServer })
   const wsOutboundTransport = new WsOutboundTransport()
+
+  // HTTP inbound instrumentation — runs after express.text() body parser (added in HttpInboundTransport
+  // constructor) so req.body is a string when our middleware fires.
+  httpInboundTransport.app.use((req, res, next) => {
+    if (req.method === 'POST') {
+      const spanId = makeSpanId()
+      const recipientKeyShort =
+        typeof req.body === 'string' ? tryExtractRecipientKeyShort(req.body) : ''
+      emitStructured(LogLevel.debug, {
+        hop: 'mediator.http.inbound.received',
+        flow: 'verification',
+        span_id: spanId,
+        outer_msg_id: '',
+        recipient_key_short: recipientKeyShort,
+        content_length: req.headers['content-length'] ? Number(req.headers['content-length']) : undefined,
+        notes: 'outer_msg_id unavailable pre-decryption',
+      })
+      res.locals.__dbg_span = spanId
+      res.locals.__dbg_start = monoNow()
+    }
+    next()
+  })
+
+  // WS session instrumentation — add our listener before agent.initialize() registers Credo's listener.
+  socketServer.on('connection', (socket) => {
+    const sessionId = makeSpanId()
+    emitStructured(LogLevel.info, {
+      hop: 'mediator.ws.session.opened',
+      flow: 'lifecycle',
+      span_id: sessionId,
+      recipient_key_short: '',
+      notes: 'recipient_key resolved on first message',
+    })
+    ;(socket as unknown as Record<string, unknown>)['__dbgSessionId'] = sessionId
+
+    socket.on('message', (data) => {
+      const raw = typeof data === 'string' ? data : data instanceof Buffer ? data.toString('utf8') : ''
+      const recipientKeyShort = raw ? tryExtractRecipientKeyShort(raw) : ''
+      emitStructured(LogLevel.debug, {
+        hop: 'mediator.ws.inbound.received',
+        flow: 'verification',
+        span_id: makeSpanId(),
+        outer_msg_id: '',
+        recipient_key_short: recipientKeyShort,
+        session_id: sessionId,
+        byte_length: raw.length,
+        notes: 'outer_msg_id unavailable pre-decryption',
+      })
+    })
+
+    socket.on('close', () => {
+      emitStructured(LogLevel.info, {
+        hop: 'mediator.ws.session.closed',
+        flow: 'lifecycle',
+        span_id: sessionId,
+        recipient_key_short: '',
+      })
+    })
+  })
 
   // Register all Transports
   agent.registerInboundTransport(httpInboundTransport)

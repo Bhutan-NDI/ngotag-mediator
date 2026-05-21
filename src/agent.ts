@@ -4,14 +4,12 @@ import {
   CacheModule,
   ConnectionsModule,
   DidCommMimeType,
-  HttpOutboundTransport,
   InMemoryLruCache,
   LogLevel,
   MediatorModule,
   OutOfBandRole,
   OutOfBandState,
   WalletConfig,
-  WsOutboundTransport,
 } from '@credo-ts/core'
 import { HttpInboundTransport, WsInboundTransport, agentDependencies } from '@credo-ts/node'
 import { ariesAskar } from '@hyperledger/aries-askar-nodejs'
@@ -26,6 +24,8 @@ import { Logger } from './logger'
 import { emitStructured, makeSpanId, monoNow, tryExtractRecipientKeyShort } from './logger/StructuredLogger'
 import { StorageMessageQueueModule } from './storage/StorageMessageQueueModule'
 import { PushNotificationsFcmModule } from './push-notifications/fcm'
+import { InstrumentedHttpOutboundTransport } from './transports/InstrumentedHttpOutboundTransport'
+import { InstrumentedWsOutboundTransport } from './transports/InstrumentedWsOutboundTransport'
 import { MessageForwardingStrategy } from '@credo-ts/core/build/modules/routing/MessageForwardingStrategy'
 
 function getForwardingStrategy(): MessageForwardingStrategy {
@@ -129,9 +129,9 @@ export async function createAgent() {
 
   // Create all transports
   const httpInboundTransport = new HttpInboundTransport({ app, port: AGENT_PORT })
-  const httpOutboundTransport = new HttpOutboundTransport()
+  const httpOutboundTransport = new InstrumentedHttpOutboundTransport()
   const wsInboundTransport = new WsInboundTransport({ server: socketServer })
-  const wsOutboundTransport = new WsOutboundTransport()
+  const wsOutboundTransport = new InstrumentedWsOutboundTransport()
 
   // HTTP inbound instrumentation — runs after express.text() body parser (added in HttpInboundTransport
   // constructor) so req.body is a string when our middleware fires.

@@ -33,7 +33,7 @@ export type FlowType =
 
 export interface StructuredLogLine {
   hop: HopName
-  flow: FlowType
+  flow?: FlowType
   thread_id?: string
   outer_msg_id?: string
   recipient_key_short?: string
@@ -87,11 +87,8 @@ export function truncateKey(key: string): string {
 export function tryExtractRecipientKeyShort(rawBody: string): string {
   try {
     const parsed = JSON.parse(rawBody) as Record<string, unknown>
-    const protectedB64 = parsed['protected']
-    if (typeof protectedB64 !== 'string') return ''
-    const headerStr = Buffer.from(protectedB64, 'base64').toString('utf8')
-    const header = JSON.parse(headerStr) as Record<string, unknown>
-    const recipients = header['recipients']
+    // recipients is a top-level JWE JSON Serialization field, not inside the protected header
+    const recipients = parsed['recipients']
     if (!Array.isArray(recipients) || recipients.length === 0) return ''
     const first = recipients[0] as Record<string, unknown>
     const hdr = first['header'] as Record<string, unknown> | undefined

@@ -146,7 +146,6 @@ export async function createAgent() {
         typeof req.body === 'string' ? tryExtractRecipientKeyShort(req.body) : ''
       emitStructured(LogLevel.debug, {
         hop: 'mediator.http.inbound.received',
-        flow: 'verification',
         span_id: spanId,
         outer_msg_id: '',
         recipient_key_short: recipientKeyShort,
@@ -177,7 +176,6 @@ export async function createAgent() {
       const recipientKeyShort = raw ? tryExtractRecipientKeyShort(raw) : ''
       emitStructured(LogLevel.debug, {
         hop: 'mediator.ws.inbound.received',
-        flow: 'verification',
         span_id: makeSpanId(),
         outer_msg_id: '',
         recipient_key_short: recipientKeyShort,

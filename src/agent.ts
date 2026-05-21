@@ -28,6 +28,7 @@ import { InstrumentedHttpOutboundTransport } from './transports/InstrumentedHttp
 import { InstrumentedWsOutboundTransport } from './transports/InstrumentedWsOutboundTransport'
 import { startGauges } from './instrumentation/gauges'
 import { wsSessionOpened, wsSessionClosed } from './instrumentation/metrics'
+import { registerAdminEndpoints } from './instrumentation/adminEndpoint'
 import { MessageForwardingStrategy } from '@credo-ts/core/build/modules/routing/MessageForwardingStrategy'
 
 function getForwardingStrategy(): MessageForwardingStrategy {
@@ -86,6 +87,7 @@ export async function createAgent() {
   // We create our own instance of express here. This is not required
   // but allows use to use the same server (and port) for both WebSockets and HTTP
   const app = express()
+  registerAdminEndpoints(app)
   const socketServer = new Server({ noServer: true })
 
   const logger = new Logger(LOG_LEVEL)

@@ -35,3 +35,7 @@ export const WALLET_DB_MAX_CONNECTIONS = Number(process.env.WALLET_DB_MAX_CONNEC
 export const WALLET_DB_MIN_CONNECTIONS = Number(process.env.WALLET_DB_MIN_CONNECTIONS) || 0
 export const WALLET_DB_IDLE_TIMEOUT = Number(process.env.WALLET_DB_IDLE_TIMEOUT) || 0
 export const WALLET_DB_CONNECT_TIMEOUT = Number(process.env.WALLET_DB_CONNECT_TIMEOUT) || 10
+
+// Debug instrumentation admin endpoint.  Set this to a long random string in production.
+// If unset, the /admin/log-level endpoint is disabled (returns 503).
+export const ADMIN_TOKEN = process.env.ADMIN_TOKEN

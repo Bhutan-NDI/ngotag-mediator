@@ -2,6 +2,7 @@ import { HttpOutboundTransport, LogLevel } from '@credo-ts/core'
 import type { OutboundPackage } from '@credo-ts/core'
 
 import { emitStructured, makeSpanId, monoNow, durationMs } from '../logger/StructuredLogger'
+import { recordOutboundMs } from '../instrumentation/metrics'
 
 export class InstrumentedHttpOutboundTransport extends HttpOutboundTransport {
   async sendMessage(outboundPackage: OutboundPackage): Promise<void> {
@@ -20,6 +21,8 @@ export class InstrumentedHttpOutboundTransport extends HttpOutboundTransport {
 
     try {
       await super.sendMessage(outboundPackage)
+      const elapsed = durationMs(startMono)
+      recordOutboundMs(elapsed)
       emitStructured(LogLevel.info, {
         hop: 'mediator.outbound.send.end',
         flow: 'verification',
@@ -27,7 +30,7 @@ export class InstrumentedHttpOutboundTransport extends HttpOutboundTransport {
         outer_msg_id: '',
         conn_id: outboundPackage.connectionId ?? '',
         target_url: targetUrl,
-        duration_ms: durationMs(startMono),
+        duration_ms: elapsed,
         status: 'ok',
       })
     } catch (err) {

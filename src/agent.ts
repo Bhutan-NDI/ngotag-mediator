@@ -26,6 +26,8 @@ import { StorageMessageQueueModule } from './storage/StorageMessageQueueModule'
 import { PushNotificationsFcmModule } from './push-notifications/fcm'
 import { InstrumentedHttpOutboundTransport } from './transports/InstrumentedHttpOutboundTransport'
 import { InstrumentedWsOutboundTransport } from './transports/InstrumentedWsOutboundTransport'
+import { startGauges } from './instrumentation/gauges'
+import { wsSessionOpened, wsSessionClosed } from './instrumentation/metrics'
 import { MessageForwardingStrategy } from '@credo-ts/core/build/modules/routing/MessageForwardingStrategy'
 
 function getForwardingStrategy(): MessageForwardingStrategy {
@@ -158,6 +160,7 @@ export async function createAgent() {
   // WS session instrumentation — add our listener before agent.initialize() registers Credo's listener.
   socketServer.on('connection', (socket) => {
     const sessionId = makeSpanId()
+    wsSessionOpened()
     emitStructured(LogLevel.info, {
       hop: 'mediator.ws.session.opened',
       flow: 'lifecycle',
@@ -183,6 +186,7 @@ export async function createAgent() {
     })
 
     socket.on('close', () => {
+      wsSessionClosed()
       emitStructured(LogLevel.info, {
         hop: 'mediator.ws.session.closed',
         flow: 'lifecycle',
@@ -217,6 +221,8 @@ export async function createAgent() {
   })
 
   await agent.initialize()
+
+  startGauges()
 
   emitStructured(LogLevel.info, {
     hop: 'mediator.config.dump',

@@ -14,6 +14,7 @@ import { MessageRepository } from './MessageRepository'
 import { PushNotificationsFcmRepository } from '../push-notifications/fcm/repository'
 import { NOTIFICATION_WEBHOOK_URL, USE_PUSH_NOTIFICATIONS } from '../constants'
 import { emitStructured, makeSpanId, monoNow, durationMs } from '../logger/StructuredLogger'
+import { recordQueueWrite } from '../instrumentation/metrics'
 import fetch from 'node-fetch'
 
 export interface NotificationMessage {
@@ -130,6 +131,7 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
     )
 
     const queueDepth = await this.messageRepository.countByConnectionId(this.agentContext, connectionId)
+    recordQueueWrite()
     emitStructured(LogLevel.info, {
       hop: 'mediator.queue.write.end',
       flow: 'verification',

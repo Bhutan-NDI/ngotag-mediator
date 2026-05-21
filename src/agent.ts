@@ -6,6 +6,7 @@ import {
   DidCommMimeType,
   HttpOutboundTransport,
   InMemoryLruCache,
+  LogLevel,
   MediatorModule,
   OutOfBandRole,
   OutOfBandState,
@@ -19,9 +20,10 @@ import type { Socket } from 'net'
 import express from 'express'
 import { Server } from 'ws'
 
-import { AGENT_ENDPOINTS, AGENT_NAME, AGENT_PORT, LOG_LEVEL, POSTGRES_HOST, WALLET_KEY, WALLET_NAME, MESSAGE_FORWARDING_STRATEGY } from './constants'
+import { AGENT_ENDPOINTS, AGENT_NAME, AGENT_PORT, LOG_LEVEL, POSTGRES_HOST, WALLET_KEY, WALLET_NAME, MESSAGE_FORWARDING_STRATEGY, WALLET_DB_MAX_CONNECTIONS, WALLET_DB_MIN_CONNECTIONS, WALLET_DB_IDLE_TIMEOUT, WALLET_DB_CONNECT_TIMEOUT, USE_PUSH_NOTIFICATIONS } from './constants'
 import { askarPostgresConfig } from './database'
 import { Logger } from './logger'
+import { emitStructured } from './logger/StructuredLogger'
 import { StorageMessageQueueModule } from './storage/StorageMessageQueueModule'
 import { PushNotificationsFcmModule } from './push-notifications/fcm'
 import { MessageForwardingStrategy } from '@credo-ts/core/build/modules/routing/MessageForwardingStrategy'
@@ -156,6 +158,20 @@ export async function createAgent() {
   })
 
   await agent.initialize()
+
+  emitStructured(LogLevel.info, {
+    hop: 'mediator.config.dump',
+    flow: 'lifecycle',
+    notes: 'effective config at startup',
+    message_forwarding_strategy: getForwardingStrategy(),
+    wallet_db_max_connections: WALLET_DB_MAX_CONNECTIONS,
+    wallet_db_min_connections: WALLET_DB_MIN_CONNECTIONS,
+    wallet_db_idle_timeout_ms: WALLET_DB_IDLE_TIMEOUT,
+    wallet_db_connect_timeout_s: WALLET_DB_CONNECT_TIMEOUT,
+    use_push_notifications: USE_PUSH_NOTIFICATIONS,
+    postgres_host: POSTGRES_HOST ? POSTGRES_HOST.split(':')[0] : 'sqlite',
+    agent_endpoints: AGENT_ENDPOINTS,
+  })
 
   // When an 'upgrade' to WS is made on our http server, we forward the
   // request to the WS server

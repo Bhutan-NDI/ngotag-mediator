@@ -1,14 +1,14 @@
 import { WsOutboundTransport, LogLevel } from '@credo-ts/core'
 import type { OutboundPackage } from '@credo-ts/core'
 
-import { emitStructured, makeSpanId, monoNow, durationMs, tryExtractOuterMsgIdFromPayload } from '../logger/StructuredLogger'
+import { emitStructured, makeSpanId, monoNow, durationMs, tryExtractOuterMsgId } from '../logger/StructuredLogger'
 
 export class InstrumentedWsOutboundTransport extends WsOutboundTransport {
   async sendMessage(outboundPackage: OutboundPackage): Promise<void> {
     const spanId = makeSpanId()
     const startMono = monoNow()
     const targetUrl = outboundPackage.endpoint ?? ''
-    const outerMsgId = tryExtractOuterMsgIdFromPayload(outboundPackage.payload)
+    const outerMsgId = tryExtractOuterMsgId(outboundPackage.payload)
 
     // WsOutboundTransport is only used for mobile recipients (never for the controller,
     // which uses HttpOutboundTransport). Every sendMessage here is a live-delivery decision.

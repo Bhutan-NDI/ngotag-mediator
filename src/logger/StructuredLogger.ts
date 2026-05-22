@@ -101,26 +101,16 @@ export function tryExtractRecipientKeyShort(rawBody: string): string {
   }
 }
 
-export function tryExtractOuterMsgId(rawBody: string): string {
+// Accepts either a raw JSON string (from HTTP/WS inbound body) or an already-parsed
+// JWE object (from outbound transport wrappers). Extracts the outer message @id from
+// the JWE protected header — used as the cross-service correlation join key.
+export function tryExtractOuterMsgId(payload: unknown): string {
   try {
-    const parsed = JSON.parse(rawBody) as Record<string, unknown>
+    const parsed: Record<string, unknown> =
+      typeof payload === 'string'
+        ? (JSON.parse(payload) as Record<string, unknown>)
+        : (payload as Record<string, unknown>)
     const protectedB64 = parsed['protected']
-    if (typeof protectedB64 !== 'string') return ''
-    const headerStr = Buffer.from(protectedB64, 'base64').toString('utf8')
-    const header = JSON.parse(headerStr) as Record<string, unknown>
-    const id = header['@id'] || header['id']
-    if (typeof id === 'string') return id
-    return ''
-  } catch {
-    return ''
-  }
-}
-
-// Variant for already-parsed JWE payload objects (used by outbound transport wrappers).
-export function tryExtractOuterMsgIdFromPayload(payload: unknown): string {
-  try {
-    const p = payload as Record<string, unknown>
-    const protectedB64 = p['protected']
     if (typeof protectedB64 !== 'string') return ''
     const headerStr = Buffer.from(protectedB64, 'base64').toString('utf8')
     const header = JSON.parse(headerStr) as Record<string, unknown>

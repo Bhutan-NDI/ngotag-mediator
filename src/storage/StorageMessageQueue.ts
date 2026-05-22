@@ -13,7 +13,7 @@ import { MessageRecord } from './MessageRecord'
 import { MessageRepository } from './MessageRepository'
 import { PushNotificationsFcmRepository } from '../push-notifications/fcm/repository'
 import { NOTIFICATION_WEBHOOK_URL, USE_PUSH_NOTIFICATIONS } from '../constants'
-import { emitStructured, makeSpanId, monoNow, durationMs, tryExtractOuterMsgIdFromPayload } from '../logger/StructuredLogger'
+import { emitStructured, makeSpanId, monoNow, durationMs, tryExtractOuterMsgId } from '../logger/StructuredLogger'
 import { recordQueueWrite } from '../instrumentation/metrics'
 import fetch from 'node-fetch'
 
@@ -104,7 +104,7 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       `Adding message to queue for connection ${connectionId} with payload ${JSON.stringify(payload)}`
     )
 
-    const outerMsgId = tryExtractOuterMsgIdFromPayload(payload)
+    const outerMsgId = tryExtractOuterMsgId(payload)
 
     // Log the forward strategy decision: this method is called only when queuing is chosen.
     emitStructured(LogLevel.info, {

@@ -7,12 +7,14 @@ import type {
   MessagePickupRepository,
 } from '@credo-ts/core'
 
-import { injectable, AgentContext, utils } from '@credo-ts/core'
+import { injectable, AgentContext, utils, LogLevel } from '@credo-ts/core'
 
 import { MessageRecord } from './MessageRecord'
 import { MessageRepository } from './MessageRepository'
 import { PushNotificationsFcmRepository } from '../push-notifications/fcm/repository'
 import { NOTIFICATION_WEBHOOK_URL, USE_PUSH_NOTIFICATIONS } from '../constants'
+import { emitStructured, makeSpanId, monoNow, durationMs, tryExtractOuterMsgId } from '../logger/StructuredLogger'
+import { recordQueueWrite } from '../instrumentation/metrics'
 import fetch from 'node-fetch'
 
 export interface NotificationMessage {
@@ -37,6 +39,10 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
     this.pushNotificationsFcmRepository = pushNotificationsFcmRepository
   }
 
+  public async getQueueGaugeSnapshot() {
+    return this.messageRepository.getQueueStats(this.agentContext)
+  }
+
   public async getAvailableMessageCount(options: GetAvailableMessageCountOptions) {
     const { connectionId } = options
 
@@ -49,6 +55,16 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
     if (limit === 0) {
       return []
     }
+
+    const spanId = makeSpanId()
+    const startMono = monoNow()
+    emitStructured(LogLevel.info, {
+      hop: 'mediator.pickup.batch.dispatch.start',
+      flow: 'pickup',
+      span_id: spanId,
+      conn_id: connectionId,
+      pickup_limit: limit,
+    })
 
     const messageRecords = await this.messageRepository.findByConnectionId(this.agentContext, connectionId, limit)
 
@@ -68,6 +84,16 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       encryptedMessage: messageRecord.message,
     }))
 
+    emitStructured(LogLevel.info, {
+      hop: 'mediator.pickup.batch.dispatch.end',
+      flow: 'pickup',
+      span_id: spanId,
+      conn_id: connectionId,
+      duration_ms: durationMs(startMono),
+      message_count: queuedMessages.length,
+      delete_messages: deleteMessages ?? false,
+    })
+
     return queuedMessages
   }
 
@@ -77,6 +103,26 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
     this.agentContext.config.logger.debug(
       `Adding message to queue for connection ${connectionId} with payload ${JSON.stringify(payload)}`
     )
+
+    const outerMsgId = tryExtractOuterMsgId(payload)
+
+    // Log the forward strategy decision: this method is called only when queuing is chosen.
+    emitStructured(LogLevel.info, {
+      hop: 'mediator.forward.strategy.decision',
+      conn_id: connectionId,
+      outer_msg_id: outerMsgId,
+      decision: 'queue',
+      ...(outerMsgId === '' && { notes: 'outer_msg_id not found in protected header' }),
+    })
+
+    const spanId = makeSpanId()
+    const startMono = monoNow()
+    emitStructured(LogLevel.info, {
+      hop: 'mediator.queue.write.start',
+      span_id: spanId,
+      conn_id: connectionId,
+      outer_msg_id: outerMsgId,
+    })
 
     const id = utils.uuid()
 
@@ -88,6 +134,17 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
         message: payload,
       })
     )
+
+    const queueDepth = await this.messageRepository.countByConnectionId(this.agentContext, connectionId)
+    recordQueueWrite()
+    emitStructured(LogLevel.info, {
+      hop: 'mediator.queue.write.end',
+      span_id: spanId,
+      conn_id: connectionId,
+      outer_msg_id: outerMsgId,
+      duration_ms: durationMs(startMono),
+      queue_depth_after: queueDepth,
+    })
 
     // Send a notification to the device
     if (USE_PUSH_NOTIFICATIONS && NOTIFICATION_WEBHOOK_URL) {
@@ -127,7 +184,20 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       }
 
       this.agentContext.config.logger.info(`Sending notification to ${pushNotificationFcmRecord?.connectionId}`)
+      const pushSpanId = makeSpanId()
+      const pushStart = monoNow()
+      emitStructured(LogLevel.info, {
+        hop: 'mediator.push.send.start',
+        span_id: pushSpanId,
+        conn_id: connectionId,
+      })
       await this.processNotification(message)
+      emitStructured(LogLevel.info, {
+        hop: 'mediator.push.send.end',
+        span_id: pushSpanId,
+        conn_id: connectionId,
+        duration_ms: durationMs(pushStart),
+      })
       this.agentContext.config.logger.info(`Notification sent successfully to ${connectionId}`)
     } catch (error) {
       this.agentContext.config.logger.error(`Error sending notification`, {

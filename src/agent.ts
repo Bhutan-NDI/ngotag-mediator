@@ -4,13 +4,12 @@ import {
   CacheModule,
   ConnectionsModule,
   DidCommMimeType,
-  HttpOutboundTransport,
   InMemoryLruCache,
+  LogLevel,
   MediatorModule,
   OutOfBandRole,
   OutOfBandState,
   WalletConfig,
-  WsOutboundTransport,
 } from '@credo-ts/core'
 import { HttpInboundTransport, WsInboundTransport, agentDependencies } from '@credo-ts/node'
 import { ariesAskar } from '@hyperledger/aries-askar-nodejs'
@@ -19,11 +18,19 @@ import type { Socket } from 'net'
 import express from 'express'
 import { Server } from 'ws'
 
-import { AGENT_ENDPOINTS, AGENT_NAME, AGENT_PORT, LOG_LEVEL, POSTGRES_HOST, WALLET_KEY, WALLET_NAME, MESSAGE_FORWARDING_STRATEGY } from './constants'
+import { AGENT_ENDPOINTS, AGENT_NAME, AGENT_PORT, LOG_LEVEL, POSTGRES_HOST, WALLET_KEY, WALLET_NAME, MESSAGE_FORWARDING_STRATEGY, WALLET_DB_MAX_CONNECTIONS, WALLET_DB_MIN_CONNECTIONS, WALLET_DB_IDLE_TIMEOUT, WALLET_DB_CONNECT_TIMEOUT, USE_PUSH_NOTIFICATIONS } from './constants'
 import { askarPostgresConfig } from './database'
 import { Logger } from './logger'
+import { emitStructured, makeSpanId, monoNow, tryExtractRecipientKeyShort, tryExtractOuterMsgId } from './logger/StructuredLogger'
 import { StorageMessageQueueModule } from './storage/StorageMessageQueueModule'
 import { PushNotificationsFcmModule } from './push-notifications/fcm'
+import { InstrumentedHttpOutboundTransport } from './transports/InstrumentedHttpOutboundTransport'
+import { InstrumentedWsOutboundTransport } from './transports/InstrumentedWsOutboundTransport'
+import { startGauges } from './instrumentation/gauges'
+import { wsSessionOpened, wsSessionClosed, registerQueueAccessor } from './instrumentation/metrics'
+import { InjectionSymbols } from '@credo-ts/core'
+import { StorageServiceMessageQueue } from './storage/StorageMessageQueue'
+import { registerAdminEndpoints } from './instrumentation/adminEndpoint'
 import { MessageForwardingStrategy } from '@credo-ts/core/build/modules/routing/MessageForwardingStrategy'
 
 function getForwardingStrategy(): MessageForwardingStrategy {
@@ -82,6 +89,7 @@ export async function createAgent() {
   // We create our own instance of express here. This is not required
   // but allows use to use the same server (and port) for both WebSockets and HTTP
   const app = express()
+  registerAdminEndpoints(app)
   const socketServer = new Server({ noServer: true })
 
   const logger = new Logger(LOG_LEVEL)
@@ -127,9 +135,70 @@ export async function createAgent() {
 
   // Create all transports
   const httpInboundTransport = new HttpInboundTransport({ app, port: AGENT_PORT })
-  const httpOutboundTransport = new HttpOutboundTransport()
+  const httpOutboundTransport = new InstrumentedHttpOutboundTransport()
   const wsInboundTransport = new WsInboundTransport({ server: socketServer })
-  const wsOutboundTransport = new WsOutboundTransport()
+  const wsOutboundTransport = new InstrumentedWsOutboundTransport()
+
+  // HTTP inbound instrumentation — runs after express.text() body parser (added in HttpInboundTransport
+  // constructor) so req.body is a string when our middleware fires.
+  httpInboundTransport.app.use((req, res, next) => {
+    if (req.method === 'POST') {
+      const spanId = makeSpanId()
+      const rawBody = typeof req.body === 'string' ? req.body : ''
+      const recipientKeyShort = rawBody ? tryExtractRecipientKeyShort(rawBody) : ''
+      const outerMsgId = rawBody ? tryExtractOuterMsgId(rawBody) : ''
+      emitStructured(LogLevel.debug, {
+        hop: 'mediator.http.inbound.received',
+        span_id: spanId,
+        outer_msg_id: outerMsgId,
+        recipient_key_short: recipientKeyShort,
+        content_length: req.headers['content-length'] ? Number(req.headers['content-length']) : undefined,
+        ...(outerMsgId === '' && { notes: 'outer_msg_id not found in protected header' }),
+      })
+      res.locals.__dbg_span = spanId
+      res.locals.__dbg_start = monoNow()
+    }
+    next()
+  })
+
+  // WS session instrumentation — add our listener before agent.initialize() registers Credo's listener.
+  socketServer.on('connection', (socket) => {
+    const sessionId = makeSpanId()
+    wsSessionOpened()
+    emitStructured(LogLevel.info, {
+      hop: 'mediator.ws.session.opened',
+      flow: 'lifecycle',
+      span_id: sessionId,
+      recipient_key_short: '',
+      notes: 'recipient_key resolved on first message',
+    })
+    ;(socket as unknown as Record<string, unknown>)['__dbgSessionId'] = sessionId
+
+    socket.on('message', (data) => {
+      const raw = typeof data === 'string' ? data : data instanceof Buffer ? data.toString('utf8') : ''
+      const recipientKeyShort = raw ? tryExtractRecipientKeyShort(raw) : ''
+      const outerMsgId = raw ? tryExtractOuterMsgId(raw) : ''
+      emitStructured(LogLevel.debug, {
+        hop: 'mediator.ws.inbound.received',
+        span_id: makeSpanId(),
+        outer_msg_id: outerMsgId,
+        recipient_key_short: recipientKeyShort,
+        session_id: sessionId,
+        byte_length: raw.length,
+        ...(outerMsgId === '' && { notes: 'outer_msg_id not found in protected header' }),
+      })
+    })
+
+    socket.on('close', () => {
+      wsSessionClosed()
+      emitStructured(LogLevel.info, {
+        hop: 'mediator.ws.session.closed',
+        flow: 'lifecycle',
+        span_id: sessionId,
+        recipient_key_short: '',
+      })
+    })
+  })
 
   // Register all Transports
   agent.registerInboundTransport(httpInboundTransport)
@@ -156,6 +225,32 @@ export async function createAgent() {
   })
 
   await agent.initialize()
+
+  // Register the queue-depth accessor so the 10s gauge snapshot can include
+  // queue_depth_total / queue_oldest_age_ms / queue_depth_top10.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const queueService = agent.dependencyManager.resolve(InjectionSymbols.MessagePickupRepository as any) as StorageServiceMessageQueue
+    registerQueueAccessor(() => queueService.getQueueGaugeSnapshot())
+  } catch {
+    // DI resolution may fail if the module isn't registered; safe to continue.
+  }
+
+  startGauges()
+
+  emitStructured(LogLevel.info, {
+    hop: 'mediator.config.dump',
+    flow: 'lifecycle',
+    notes: 'effective config at startup',
+    message_forwarding_strategy: getForwardingStrategy(),
+    wallet_db_max_connections: WALLET_DB_MAX_CONNECTIONS,
+    wallet_db_min_connections: WALLET_DB_MIN_CONNECTIONS,
+    wallet_db_idle_timeout_ms: WALLET_DB_IDLE_TIMEOUT,
+    wallet_db_connect_timeout_s: WALLET_DB_CONNECT_TIMEOUT,
+    use_push_notifications: USE_PUSH_NOTIFICATIONS,
+    postgres_host: POSTGRES_HOST ? POSTGRES_HOST.split(':')[0] : 'sqlite',
+    agent_endpoints: AGENT_ENDPOINTS,
+  })
 
   // When an 'upgrade' to WS is made on our http server, we forward the
   // request to the WS server

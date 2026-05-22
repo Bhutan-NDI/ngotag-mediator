@@ -115,3 +115,19 @@ export function tryExtractOuterMsgId(rawBody: string): string {
     return ''
   }
 }
+
+// Variant for already-parsed JWE payload objects (used by outbound transport wrappers).
+export function tryExtractOuterMsgIdFromPayload(payload: unknown): string {
+  try {
+    const p = payload as Record<string, unknown>
+    const protectedB64 = p['protected']
+    if (typeof protectedB64 !== 'string') return ''
+    const headerStr = Buffer.from(protectedB64, 'base64').toString('utf8')
+    const header = JSON.parse(headerStr) as Record<string, unknown>
+    const id = header['@id'] || header['id']
+    if (typeof id === 'string') return id
+    return ''
+  } catch {
+    return ''
+  }
+}

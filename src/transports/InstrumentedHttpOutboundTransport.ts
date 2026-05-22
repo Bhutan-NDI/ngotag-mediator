@@ -1,7 +1,7 @@
 import { HttpOutboundTransport, LogLevel } from '@credo-ts/core'
 import type { OutboundPackage } from '@credo-ts/core'
 
-import { emitStructured, makeSpanId, monoNow, durationMs } from '../logger/StructuredLogger'
+import { emitStructured, makeSpanId, monoNow, durationMs, tryExtractOuterMsgIdFromPayload } from '../logger/StructuredLogger'
 import { recordOutboundMs } from '../instrumentation/metrics'
 
 export class InstrumentedHttpOutboundTransport extends HttpOutboundTransport {
@@ -9,14 +9,15 @@ export class InstrumentedHttpOutboundTransport extends HttpOutboundTransport {
     const spanId = makeSpanId()
     const startMono = monoNow()
     const targetUrl = outboundPackage.endpoint ?? ''
+    const outerMsgId = tryExtractOuterMsgIdFromPayload(outboundPackage.payload)
 
     emitStructured(LogLevel.info, {
       hop: 'mediator.outbound.send.start',
-      flow: 'verification',
       span_id: spanId,
-      outer_msg_id: '',
+      outer_msg_id: outerMsgId,
       conn_id: outboundPackage.connectionId ?? '',
       target_url: targetUrl,
+      ...(outerMsgId === '' && { notes: 'outer_msg_id not found in protected header' }),
     })
 
     try {
@@ -25,9 +26,8 @@ export class InstrumentedHttpOutboundTransport extends HttpOutboundTransport {
       recordOutboundMs(elapsed)
       emitStructured(LogLevel.info, {
         hop: 'mediator.outbound.send.end',
-        flow: 'verification',
         span_id: spanId,
-        outer_msg_id: '',
+        outer_msg_id: outerMsgId,
         conn_id: outboundPackage.connectionId ?? '',
         target_url: targetUrl,
         duration_ms: elapsed,
@@ -36,9 +36,8 @@ export class InstrumentedHttpOutboundTransport extends HttpOutboundTransport {
     } catch (err) {
       emitStructured(LogLevel.info, {
         hop: 'mediator.outbound.send.end',
-        flow: 'verification',
         span_id: spanId,
-        outer_msg_id: '',
+        outer_msg_id: outerMsgId,
         conn_id: outboundPackage.connectionId ?? '',
         target_url: targetUrl,
         duration_ms: durationMs(startMono),

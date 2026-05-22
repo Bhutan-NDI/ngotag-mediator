@@ -39,6 +39,10 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
     this.pushNotificationsFcmRepository = pushNotificationsFcmRepository
   }
 
+  public async getQueueGaugeSnapshot() {
+    return this.messageRepository.getQueueStats(this.agentContext)
+  }
+
   public async getAvailableMessageCount(options: GetAvailableMessageCountOptions) {
     const { connectionId } = options
 
@@ -184,14 +188,12 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       const pushStart = monoNow()
       emitStructured(LogLevel.info, {
         hop: 'mediator.push.send.start',
-        flow: 'verification',
         span_id: pushSpanId,
         conn_id: connectionId,
       })
       await this.processNotification(message)
       emitStructured(LogLevel.info, {
         hop: 'mediator.push.send.end',
-        flow: 'verification',
         span_id: pushSpanId,
         conn_id: connectionId,
         duration_ms: durationMs(pushStart),

@@ -27,7 +27,9 @@ import { PushNotificationsFcmModule } from './push-notifications/fcm'
 import { InstrumentedHttpOutboundTransport } from './transports/InstrumentedHttpOutboundTransport'
 import { InstrumentedWsOutboundTransport } from './transports/InstrumentedWsOutboundTransport'
 import { startGauges } from './instrumentation/gauges'
-import { wsSessionOpened, wsSessionClosed } from './instrumentation/metrics'
+import { wsSessionOpened, wsSessionClosed, registerQueueAccessor } from './instrumentation/metrics'
+import { InjectionSymbols } from '@credo-ts/core'
+import { StorageServiceMessageQueue } from './storage/StorageMessageQueue'
 import { registerAdminEndpoints } from './instrumentation/adminEndpoint'
 import { MessageForwardingStrategy } from '@credo-ts/core/build/modules/routing/MessageForwardingStrategy'
 
@@ -223,6 +225,16 @@ export async function createAgent() {
   })
 
   await agent.initialize()
+
+  // Register the queue-depth accessor so the 10s gauge snapshot can include
+  // queue_depth_total / queue_oldest_age_ms / queue_depth_top10.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const queueService = agent.dependencyManager.resolve(InjectionSymbols.MessagePickupRepository as any) as StorageServiceMessageQueue
+    registerQueueAccessor(() => queueService.getQueueGaugeSnapshot())
+  } catch {
+    // DI resolution may fail if the module isn't registered; safe to continue.
+  }
 
   startGauges()
 

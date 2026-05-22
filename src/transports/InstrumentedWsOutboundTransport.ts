@@ -10,13 +10,22 @@ export class InstrumentedWsOutboundTransport extends WsOutboundTransport {
     const targetUrl = outboundPackage.endpoint ?? ''
     const outerMsgId = tryExtractOuterMsgIdFromPayload(outboundPackage.payload)
 
+    // WsOutboundTransport is only used for mobile recipients (never for the controller,
+    // which uses HttpOutboundTransport). Every sendMessage here is a live-delivery decision.
+    emitStructured(LogLevel.info, {
+      hop: 'mediator.forward.strategy.decision',
+      conn_id: outboundPackage.connectionId ?? '',
+      outer_msg_id: outerMsgId,
+      decision: 'live',
+      ...(outerMsgId === '' && { notes: 'outer_msg_id not found in protected header' }),
+    })
+
     emitStructured(LogLevel.info, {
       hop: 'mediator.live.delivery.start',
       span_id: spanId,
       outer_msg_id: outerMsgId,
       conn_id: outboundPackage.connectionId ?? '',
       target_url: targetUrl,
-      ...(outerMsgId === '' && { notes: 'outer_msg_id not found in protected header' }),
     })
 
     try {

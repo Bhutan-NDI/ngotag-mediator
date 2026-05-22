@@ -1,6 +1,22 @@
 // Shared in-memory counters and rolling windows used by both the gauge emitter
 // and the instrumented transports / storage modules.
 
+type QueueStatsAccessor = () => Promise<{
+  total: number
+  oldestAgeMs: number
+  top10: Array<{ connId: string; count: number }>
+}>
+
+let _queueAccessor: QueueStatsAccessor | null = null
+
+export function registerQueueAccessor(fn: QueueStatsAccessor): void {
+  _queueAccessor = fn
+}
+
+export function getQueueAccessor(): QueueStatsAccessor | null {
+  return _queueAccessor
+}
+
 let _wsSessionsActive = 0
 const _outboundMs: number[] = []
 let _queueWritesLast10s = 0

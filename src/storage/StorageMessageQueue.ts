@@ -13,7 +13,7 @@ import { MessageRecord } from './MessageRecord'
 import { MessageRepository } from './MessageRepository'
 import { PushNotificationsFcmRepository } from '../push-notifications/fcm/repository'
 import { NOTIFICATION_WEBHOOK_URL, USE_PUSH_NOTIFICATIONS } from '../constants'
-import { emitStructured, makeSpanId, monoNow, durationMs } from '../logger/StructuredLogger'
+import { emitStructured, makeSpanId, monoNow, durationMs, tryExtractOuterMsgIdFromPayload } from '../logger/StructuredLogger'
 import { recordQueueWrite } from '../instrumentation/metrics'
 import fetch from 'node-fetch'
 
@@ -100,23 +100,24 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       `Adding message to queue for connection ${connectionId} with payload ${JSON.stringify(payload)}`
     )
 
+    const outerMsgId = tryExtractOuterMsgIdFromPayload(payload)
+
     // Log the forward strategy decision: this method is called only when queuing is chosen.
     emitStructured(LogLevel.info, {
       hop: 'mediator.forward.strategy.decision',
-      flow: 'verification',
       conn_id: connectionId,
-      outer_msg_id: '',
+      outer_msg_id: outerMsgId,
       decision: 'queue',
+      ...(outerMsgId === '' && { notes: 'outer_msg_id not found in protected header' }),
     })
 
     const spanId = makeSpanId()
     const startMono = monoNow()
     emitStructured(LogLevel.info, {
       hop: 'mediator.queue.write.start',
-      flow: 'verification',
       span_id: spanId,
       conn_id: connectionId,
-      outer_msg_id: '',
+      outer_msg_id: outerMsgId,
     })
 
     const id = utils.uuid()
@@ -134,10 +135,9 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
     recordQueueWrite()
     emitStructured(LogLevel.info, {
       hop: 'mediator.queue.write.end',
-      flow: 'verification',
       span_id: spanId,
       conn_id: connectionId,
-      outer_msg_id: '',
+      outer_msg_id: outerMsgId,
       duration_ms: durationMs(startMono),
       queue_depth_after: queueDepth,
     })

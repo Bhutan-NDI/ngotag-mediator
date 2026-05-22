@@ -35,7 +35,9 @@ export interface StructuredLogLine {
   hop: HopName
   flow?: FlowType
   thread_id?: string
-  outer_msg_id?: string
+  jwe_fp?: string
+  jwe_fp_in?: string
+  jwe_fp_out?: string
   recipient_key_short?: string
   conn_id?: string
   span_id?: string
@@ -57,10 +59,11 @@ export function emitStructured(level: LogLevel, line: StructuredLogLine): void {
     ...line,
   }
 
-  // Remove undefined fields to keep lines compact
+  // Remove undefined/empty fields to keep lines compact, except key correlation fields
+  const KEEP_EMPTY = new Set(['thread_id', 'jwe_fp', 'jwe_fp_in', 'jwe_fp_out'])
   for (const key of Object.keys(out)) {
     if (out[key] === undefined || out[key] === '') {
-      if (key !== 'thread_id' && key !== 'outer_msg_id') delete out[key]
+      if (!KEEP_EMPTY.has(key)) delete out[key]
     }
   }
 
@@ -87,36 +90,45 @@ export function truncateKey(key: string): string {
 export function tryExtractRecipientKeyShort(rawBody: string): string {
   try {
     const parsed = JSON.parse(rawBody) as Record<string, unknown>
-    // recipients is a top-level JWE JSON Serialization field, not inside the protected header
-    const recipients = parsed['recipients']
-    if (!Array.isArray(recipients) || recipients.length === 0) return ''
-    const first = recipients[0] as Record<string, unknown>
+
+    // Try top-level recipients first (standard JWE General JSON Serialization)
+    const topRecipients = parsed['recipients']
+    if (Array.isArray(topRecipients) && topRecipients.length > 0) {
+      const first = topRecipients[0] as Record<string, unknown>
+      const hdr = first['header'] as Record<string, unknown> | undefined
+      const kid = hdr?.['kid']
+      if (typeof kid === 'string' && kid.length > 0) return truncateKey(kid)
+    }
+
+    // Fall back: Aries DIDComm v1 Authcrypt puts recipients inside the protected header
+    const protectedB64 = parsed['protected']
+    if (typeof protectedB64 !== 'string') return ''
+    const headerStr = Buffer.from(protectedB64, 'base64').toString('utf8')
+    const header = JSON.parse(headerStr) as Record<string, unknown>
+    const innerRecipients = header['recipients']
+    if (!Array.isArray(innerRecipients) || innerRecipients.length === 0) return ''
+    const first = innerRecipients[0] as Record<string, unknown>
     const hdr = first['header'] as Record<string, unknown> | undefined
-    if (!hdr) return ''
-    const kid = hdr['kid']
-    if (typeof kid !== 'string') return ''
-    return truncateKey(kid)
+    const kid = hdr?.['kid']
+    if (typeof kid === 'string') return truncateKey(kid)
+    return ''
   } catch {
     return ''
   }
 }
 
-// Accepts either a raw JSON string (from HTTP/WS inbound body) or an already-parsed
-// JWE object (from outbound transport wrappers). Extracts the outer message @id from
-// the JWE protected header — used as the cross-service correlation join key.
-export function tryExtractOuterMsgId(payload: unknown): string {
+// Extracts the JWE top-level `iv` field as a per-message fingerprint.
+// The `iv` is unique per encryption (guaranteed by JWE spec) and visible at
+// both ends of every hop without decryption — unlike @id which is inside the
+// encrypted payload for DIDComm v1 Authcrypt.
+export function tryExtractJweFp(payload: unknown): string {
   try {
     const parsed: Record<string, unknown> =
       typeof payload === 'string'
         ? (JSON.parse(payload) as Record<string, unknown>)
         : (payload as Record<string, unknown>)
-    const protectedB64 = parsed['protected']
-    if (typeof protectedB64 !== 'string') return ''
-    const headerStr = Buffer.from(protectedB64, 'base64').toString('utf8')
-    const header = JSON.parse(headerStr) as Record<string, unknown>
-    const id = header['@id'] || header['id']
-    if (typeof id === 'string') return id
-    return ''
+    const iv = parsed['iv']
+    return typeof iv === 'string' ? iv : ''
   } catch {
     return ''
   }

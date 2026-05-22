@@ -21,7 +21,8 @@ import { Server } from 'ws'
 import { AGENT_ENDPOINTS, AGENT_NAME, AGENT_PORT, LOG_LEVEL, POSTGRES_HOST, WALLET_KEY, WALLET_NAME, MESSAGE_FORWARDING_STRATEGY, WALLET_DB_MAX_CONNECTIONS, WALLET_DB_MIN_CONNECTIONS, WALLET_DB_IDLE_TIMEOUT, WALLET_DB_CONNECT_TIMEOUT, USE_PUSH_NOTIFICATIONS } from './constants'
 import { askarPostgresConfig } from './database'
 import { Logger } from './logger'
-import { emitStructured, makeSpanId, monoNow, tryExtractRecipientKeyShort, tryExtractOuterMsgId } from './logger/StructuredLogger'
+import { emitStructured, makeSpanId, monoNow, tryExtractRecipientKeyShort, tryExtractJweFp } from './logger/StructuredLogger'
+import { requestContext } from './instrumentation/requestContext'
 import { StorageMessageQueueModule } from './storage/StorageMessageQueueModule'
 import { PushNotificationsFcmModule } from './push-notifications/fcm'
 import { InstrumentedHttpOutboundTransport } from './transports/InstrumentedHttpOutboundTransport'
@@ -146,22 +147,26 @@ export async function createAgent() {
       const spanId = makeSpanId()
       const rawBody = typeof req.body === 'string' ? req.body : ''
       const recipientKeyShort = rawBody ? tryExtractRecipientKeyShort(rawBody) : ''
-      const outerMsgId = rawBody ? tryExtractOuterMsgId(rawBody) : ''
+      const jweFpIn = rawBody ? tryExtractJweFp(rawBody) : ''
       emitStructured(LogLevel.debug, {
         hop: 'mediator.http.inbound.received',
         span_id: spanId,
-        outer_msg_id: outerMsgId,
+        jwe_fp: jweFpIn,
         recipient_key_short: recipientKeyShort,
         content_length: req.headers['content-length'] ? Number(req.headers['content-length']) : undefined,
-        ...(outerMsgId === '' && { notes: 'outer_msg_id not found in protected header' }),
       })
       res.locals.__dbg_span = spanId
       res.locals.__dbg_start = monoNow()
+      // Thread the outer JWE fingerprint through Credo's async processing chain so
+      // StorageMessageQueue.addMessage and outbound transports can read jwe_fp_in.
+      return requestContext.run({ jweFpIn }, () => next())
     }
     next()
   })
 
   // WS session instrumentation — add our listener before agent.initialize() registers Credo's listener.
+  // We also patch socket.on so that Credo's message handler (registered after agent.initialize())
+  // inherits the ALS requestContext that carries the outer JWE fingerprint.
   socketServer.on('connection', (socket) => {
     const sessionId = makeSpanId()
     wsSessionOpened()
@@ -174,18 +179,38 @@ export async function createAgent() {
     })
     ;(socket as unknown as Record<string, unknown>)['__dbgSessionId'] = sessionId
 
+    // Patch socket.on so subsequent 'message' listeners (including Credo's) are wrapped in ALS.
+    // This must be done before agent.initialize() registers WsInboundTransport's listener.
+    const _origOn = socket.on.bind(socket) as typeof socket.on
+    ;(socket as unknown as { on: typeof socket.on }).on = (
+      event: string,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      listener: (...args: any[]) => void
+    ) => {
+      if (event === 'message') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return _origOn(event as 'message', (...args: any[]) => {
+          const data = args[0]
+          const raw = typeof data === 'string' ? data : Buffer.isBuffer(data) ? data.toString('utf8') : ''
+          const jweFpIn = raw ? tryExtractJweFp(raw) : ''
+          requestContext.run({ jweFpIn }, () => listener(...args))
+        }) as typeof socket
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return _origOn(event as any, listener)
+    }
+
     socket.on('message', (data) => {
-      const raw = typeof data === 'string' ? data : data instanceof Buffer ? data.toString('utf8') : ''
+      const raw = typeof data === 'string' ? data : Buffer.isBuffer(data) ? data.toString('utf8') : ''
       const recipientKeyShort = raw ? tryExtractRecipientKeyShort(raw) : ''
-      const outerMsgId = raw ? tryExtractOuterMsgId(raw) : ''
+      const jweFpIn = raw ? tryExtractJweFp(raw) : ''
       emitStructured(LogLevel.debug, {
         hop: 'mediator.ws.inbound.received',
         span_id: makeSpanId(),
-        outer_msg_id: outerMsgId,
+        jwe_fp: jweFpIn,
         recipient_key_short: recipientKeyShort,
         session_id: sessionId,
         byte_length: raw.length,
-        ...(outerMsgId === '' && { notes: 'outer_msg_id not found in protected header' }),
       })
     })
 

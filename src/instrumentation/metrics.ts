@@ -7,7 +7,14 @@ type QueueStatsAccessor = () => Promise<{
   top10: Array<{ connId: string; count: number }>
 }>
 
+type WalletPoolStatsAccessor = () => Promise<{
+  in_use: number
+  idle: number
+  waiting: number
+} | null>
+
 let _queueAccessor: QueueStatsAccessor | null = null
+let _walletPoolAccessor: WalletPoolStatsAccessor | null = null
 
 export function registerQueueAccessor(fn: QueueStatsAccessor): void {
   _queueAccessor = fn
@@ -15,6 +22,14 @@ export function registerQueueAccessor(fn: QueueStatsAccessor): void {
 
 export function getQueueAccessor(): QueueStatsAccessor | null {
   return _queueAccessor
+}
+
+export function registerWalletPoolAccessor(fn: WalletPoolStatsAccessor): void {
+  _walletPoolAccessor = fn
+}
+
+export function getWalletPoolAccessor(): WalletPoolStatsAccessor | null {
+  return _walletPoolAccessor
 }
 
 let _wsSessionsActive = 0
@@ -50,6 +65,9 @@ export interface GaugeSnapshot {
   outbound_p95_ms: number | null
   outbound_sample_n: number
   queue_writes_10s: number
+  wallet_pool_in_use: number | null
+  wallet_pool_idle: number | null
+  wallet_pool_waiting: number | null
 }
 
 export function snapshotAndReset(): GaugeSnapshot {
@@ -66,6 +84,10 @@ export function snapshotAndReset(): GaugeSnapshot {
     outbound_p95_ms: p95,
     outbound_sample_n: n,
     queue_writes_10s: _queueWritesLast10s,
+    // Populated by registerWalletPoolAccessor if the pool exposes stats; null otherwise.
+    wallet_pool_in_use: null,
+    wallet_pool_idle: null,
+    wallet_pool_waiting: null,
   }
 
   // Reset rolling counters

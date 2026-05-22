@@ -100,3 +100,18 @@ export function tryExtractRecipientKeyShort(rawBody: string): string {
     return ''
   }
 }
+
+export function tryExtractOuterMsgId(rawBody: string): string {
+  try {
+    const parsed = JSON.parse(rawBody) as Record<string, unknown>
+    const protectedB64 = parsed['protected']
+    if (typeof protectedB64 !== 'string') return ''
+    const headerStr = Buffer.from(protectedB64, 'base64').toString('utf8')
+    const header = JSON.parse(headerStr) as Record<string, unknown>
+    const id = header['@id'] || header['id']
+    if (typeof id === 'string') return id
+    return ''
+  } catch {
+    return ''
+  }
+}

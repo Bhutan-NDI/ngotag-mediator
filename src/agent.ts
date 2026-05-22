@@ -21,7 +21,7 @@ import { Server } from 'ws'
 import { AGENT_ENDPOINTS, AGENT_NAME, AGENT_PORT, LOG_LEVEL, POSTGRES_HOST, WALLET_KEY, WALLET_NAME, MESSAGE_FORWARDING_STRATEGY, WALLET_DB_MAX_CONNECTIONS, WALLET_DB_MIN_CONNECTIONS, WALLET_DB_IDLE_TIMEOUT, WALLET_DB_CONNECT_TIMEOUT, USE_PUSH_NOTIFICATIONS } from './constants'
 import { askarPostgresConfig } from './database'
 import { Logger } from './logger'
-import { emitStructured, makeSpanId, monoNow, tryExtractRecipientKeyShort } from './logger/StructuredLogger'
+import { emitStructured, makeSpanId, monoNow, tryExtractRecipientKeyShort, tryExtractOuterMsgId } from './logger/StructuredLogger'
 import { StorageMessageQueueModule } from './storage/StorageMessageQueueModule'
 import { PushNotificationsFcmModule } from './push-notifications/fcm'
 import { InstrumentedHttpOutboundTransport } from './transports/InstrumentedHttpOutboundTransport'
@@ -142,15 +142,16 @@ export async function createAgent() {
   httpInboundTransport.app.use((req, res, next) => {
     if (req.method === 'POST') {
       const spanId = makeSpanId()
-      const recipientKeyShort =
-        typeof req.body === 'string' ? tryExtractRecipientKeyShort(req.body) : ''
+      const rawBody = typeof req.body === 'string' ? req.body : ''
+      const recipientKeyShort = rawBody ? tryExtractRecipientKeyShort(rawBody) : ''
+      const outerMsgId = rawBody ? tryExtractOuterMsgId(rawBody) : ''
       emitStructured(LogLevel.debug, {
         hop: 'mediator.http.inbound.received',
         span_id: spanId,
-        outer_msg_id: '',
+        outer_msg_id: outerMsgId,
         recipient_key_short: recipientKeyShort,
         content_length: req.headers['content-length'] ? Number(req.headers['content-length']) : undefined,
-        notes: 'outer_msg_id unavailable pre-decryption',
+        ...(outerMsgId === '' && { notes: 'outer_msg_id not found in protected header' }),
       })
       res.locals.__dbg_span = spanId
       res.locals.__dbg_start = monoNow()
@@ -174,14 +175,15 @@ export async function createAgent() {
     socket.on('message', (data) => {
       const raw = typeof data === 'string' ? data : data instanceof Buffer ? data.toString('utf8') : ''
       const recipientKeyShort = raw ? tryExtractRecipientKeyShort(raw) : ''
+      const outerMsgId = raw ? tryExtractOuterMsgId(raw) : ''
       emitStructured(LogLevel.debug, {
         hop: 'mediator.ws.inbound.received',
         span_id: makeSpanId(),
-        outer_msg_id: '',
+        outer_msg_id: outerMsgId,
         recipient_key_short: recipientKeyShort,
         session_id: sessionId,
         byte_length: raw.length,
-        notes: 'outer_msg_id unavailable pre-decryption',
+        ...(outerMsgId === '' && { notes: 'outer_msg_id not found in protected header' }),
       })
     })
 

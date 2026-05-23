@@ -261,6 +261,11 @@ export async function createAgent() {
     // DI resolution may fail if the module isn't registered; safe to continue.
   }
 
+  // Wallet pool accessor is intentionally NOT wired today. aries-askar does not
+  // expose live postgres pool stats to JS (Rust-side N-API), so the wallet_pool_*
+  // gauge fields remain null. Use mediator.queue.write.end.duration_ms growth as
+  // an indirect proxy for postgres pool pressure until aries-askar surfaces stats.
+
   startGauges()
 
   emitStructured(LogLevel.info, {

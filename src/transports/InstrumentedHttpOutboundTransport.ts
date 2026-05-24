@@ -1,7 +1,8 @@
 import { HttpOutboundTransport, LogLevel } from '@credo-ts/core'
 import type { OutboundPackage } from '@credo-ts/core'
 
-import { emitStructured, makeSpanId, monoNow, durationMs, tryExtractOuterMsgId } from '../logger/StructuredLogger'
+import { emitStructured, makeSpanId, monoNow, durationMs, tryExtractJweFp } from '../logger/StructuredLogger'
+import { requestContext } from '../instrumentation/requestContext'
 import { recordOutboundMs } from '../instrumentation/metrics'
 
 export class InstrumentedHttpOutboundTransport extends HttpOutboundTransport {
@@ -9,15 +10,16 @@ export class InstrumentedHttpOutboundTransport extends HttpOutboundTransport {
     const spanId = makeSpanId()
     const startMono = monoNow()
     const targetUrl = outboundPackage.endpoint ?? ''
-    const outerMsgId = tryExtractOuterMsgId(outboundPackage.payload)
+    const jweFp = tryExtractJweFp(outboundPackage.payload)
+    const jweFpIn = requestContext.getStore()?.jweFpIn ?? ''
 
     emitStructured(LogLevel.info, {
       hop: 'mediator.outbound.send.start',
       span_id: spanId,
-      outer_msg_id: outerMsgId,
+      jwe_fp: jweFp,
+      jwe_fp_in: jweFpIn,
       conn_id: outboundPackage.connectionId ?? '',
       target_url: targetUrl,
-      ...(outerMsgId === '' && { notes: 'outer_msg_id not found in protected header' }),
     })
 
     try {
@@ -27,7 +29,8 @@ export class InstrumentedHttpOutboundTransport extends HttpOutboundTransport {
       emitStructured(LogLevel.info, {
         hop: 'mediator.outbound.send.end',
         span_id: spanId,
-        outer_msg_id: outerMsgId,
+        jwe_fp: jweFp,
+        jwe_fp_in: jweFpIn,
         conn_id: outboundPackage.connectionId ?? '',
         target_url: targetUrl,
         duration_ms: elapsed,
@@ -37,7 +40,8 @@ export class InstrumentedHttpOutboundTransport extends HttpOutboundTransport {
       emitStructured(LogLevel.info, {
         hop: 'mediator.outbound.send.end',
         span_id: spanId,
-        outer_msg_id: outerMsgId,
+        jwe_fp: jweFp,
+        jwe_fp_in: jweFpIn,
         conn_id: outboundPackage.connectionId ?? '',
         target_url: targetUrl,
         duration_ms: durationMs(startMono),

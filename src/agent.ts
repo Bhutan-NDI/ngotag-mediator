@@ -193,7 +193,7 @@ export async function createAgent() {
           const data = args[0]
           const raw = typeof data === 'string' ? data : Buffer.isBuffer(data) ? data.toString('utf8') : ''
           const jweFpIn = raw ? tryExtractJweFp(raw) : ''
-          requestContext.run({ jweFpIn }, () => listener(...args))
+          requestContext.run({ jweFpIn }, () => listener.call(socket, ...args))
         }) as typeof socket
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

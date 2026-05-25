@@ -1,7 +1,7 @@
 import { LogLevel } from '@credo-ts/core'
 
 import { emitStructured } from '../logger/StructuredLogger'
-import { snapshotAndReset, getQueueAccessor } from './metrics'
+import { snapshotAndReset, getQueueAccessor, getWalletPoolAccessor } from './metrics'
 
 const GAUGE_INTERVAL_MS = 10_000
 
@@ -33,11 +33,33 @@ export function startGauges(): void {
       }
     }
 
+    // Wallet pool stats: populated if registerWalletPoolAccessor has been called.
+    let walletPoolFields: Record<string, unknown> = {}
+    const walletPoolAccessor = getWalletPoolAccessor()
+    if (walletPoolAccessor) {
+      try {
+        const poolSnap = await Promise.race([
+          walletPoolAccessor(),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 500)),
+        ])
+        if (poolSnap) {
+          walletPoolFields = {
+            wallet_pool_in_use: poolSnap.in_use,
+            wallet_pool_idle: poolSnap.idle,
+            wallet_pool_waiting: poolSnap.waiting,
+          }
+        }
+      } catch {
+        // ignore — snapshot is best-effort
+      }
+    }
+
     emitStructured(LogLevel.info, {
       hop: 'mediator.gauge.snapshot',
       flow: 'lifecycle',
       ...snap,
       ...queueFields,
+      ...walletPoolFields,
     })
   }, GAUGE_INTERVAL_MS)
   // Don't block process exit

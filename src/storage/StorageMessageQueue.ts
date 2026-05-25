@@ -13,7 +13,8 @@ import { MessageRecord } from './MessageRecord'
 import { MessageRepository } from './MessageRepository'
 import { PushNotificationsFcmRepository } from '../push-notifications/fcm/repository'
 import { NOTIFICATION_WEBHOOK_URL, USE_PUSH_NOTIFICATIONS } from '../constants'
-import { emitStructured, makeSpanId, monoNow, durationMs, tryExtractOuterMsgId } from '../logger/StructuredLogger'
+import { emitStructured, makeSpanId, monoNow, durationMs, tryExtractJweFp } from '../logger/StructuredLogger'
+import { requestContext } from '../instrumentation/requestContext'
 import { recordQueueWrite } from '../instrumentation/metrics'
 import fetch from 'node-fetch'
 
@@ -84,6 +85,10 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       encryptedMessage: messageRecord.message,
     }))
 
+    // Per-message fingerprints: each dispatched message has its own jwe_fp (the inner JWE
+    // that was queued). Lets the analyst join dispatch events to the original queue write.
+    const dispatchedFingerprints = queuedMessages.map((m) => tryExtractJweFp(m.encryptedMessage))
+
     emitStructured(LogLevel.info, {
       hop: 'mediator.pickup.batch.dispatch.end',
       flow: 'pickup',
@@ -92,6 +97,7 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       duration_ms: durationMs(startMono),
       message_count: queuedMessages.length,
       delete_messages: deleteMessages ?? false,
+      dispatched_jwe_fps: dispatchedFingerprints.filter(Boolean),
     })
 
     return queuedMessages
@@ -104,15 +110,18 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       `Adding message to queue for connection ${connectionId} with payload ${JSON.stringify(payload)}`
     )
 
-    const outerMsgId = tryExtractOuterMsgId(payload)
+    // jwe_fp_in: outer JWE fingerprint that arrived at the mediator (threaded via ALS from inbound transport)
+    // jwe_fp_out: inner JWE fingerprint — the payload being queued, which mobile will unpack
+    const jweFpIn = requestContext.getStore()?.jweFpIn ?? ''
+    const jweFpOut = tryExtractJweFp(payload)
 
     // Log the forward strategy decision: this method is called only when queuing is chosen.
     emitStructured(LogLevel.info, {
       hop: 'mediator.forward.strategy.decision',
       conn_id: connectionId,
-      outer_msg_id: outerMsgId,
+      jwe_fp_in: jweFpIn,
+      jwe_fp_out: jweFpOut,
       decision: 'queue',
-      ...(outerMsgId === '' && { notes: 'outer_msg_id not found in protected header' }),
     })
 
     const spanId = makeSpanId()
@@ -121,7 +130,8 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       hop: 'mediator.queue.write.start',
       span_id: spanId,
       conn_id: connectionId,
-      outer_msg_id: outerMsgId,
+      jwe_fp_in: jweFpIn,
+      jwe_fp_out: jweFpOut,
     })
 
     const id = utils.uuid()
@@ -141,7 +151,8 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       hop: 'mediator.queue.write.end',
       span_id: spanId,
       conn_id: connectionId,
-      outer_msg_id: outerMsgId,
+      jwe_fp_in: jweFpIn,
+      jwe_fp_out: jweFpOut,
       duration_ms: durationMs(startMono),
       queue_depth_after: queueDepth,
     })

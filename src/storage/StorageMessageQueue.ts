@@ -145,7 +145,6 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       })
     )
 
-    const queueDepth = await this.messageRepository.countByConnectionId(this.agentContext, connectionId)
     recordQueueWrite()
     emitStructured(LogLevel.info, {
       hop: 'mediator.queue.write.end',
@@ -154,7 +153,14 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       jwe_fp_in: jweFpIn,
       jwe_fp_out: jweFpOut,
       duration_ms: durationMs(startMono),
-      queue_depth_after: queueDepth,
+    })
+    // Count is fire-and-forget — the SELECT COUNT must not block the delivery path
+    void this.messageRepository.countByConnectionId(this.agentContext, connectionId).then((queueDepth) => {
+      emitStructured(LogLevel.info, {
+        hop: 'mediator.queue.depth.sample',
+        conn_id: connectionId,
+        queue_depth_after: queueDepth,
+      })
     })
 
     // Send a notification to the device

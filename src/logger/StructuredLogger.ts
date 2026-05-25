@@ -12,6 +12,7 @@ export type HopName =
   | 'mediator.forward.strategy.decision'
   | 'mediator.queue.write.start'
   | 'mediator.queue.write.end'
+  | 'mediator.queue.depth.sample'
   | 'mediator.live.delivery.start'
   | 'mediator.live.delivery.end'
   | 'mediator.outbound.send.start'

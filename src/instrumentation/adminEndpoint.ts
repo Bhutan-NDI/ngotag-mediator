@@ -1,5 +1,5 @@
 import type { Agent } from '@credo-ts/core'
-import { LogLevel } from '@credo-ts/core'
+import { LogLevel, RecordNotFoundError } from '@credo-ts/core'
 import type { Express, Request, Response } from 'express'
 import express from 'express'
 
@@ -136,13 +136,12 @@ export function registerAdminEndpoints(app: Express): void {
       const agentContext = _agent.context
       const repo = agentContext.dependencyManager.resolve(MessageRepository)
 
-      const olderRecords = await repo.findOlderThan(agentContext, cutoffMs, maxBatch)
-      const filtered = connectionIdAllowList
-        ? olderRecords.filter((r) => connectionIdAllowList.includes(r.connectionId))
-        : olderRecords
+      // connectionIdAllowList filtering and age filtering happen inside findOlderThan,
+      // before the maxBatch slice, so allowlisted records are never shadowed by newer ones.
+      const candidates = await repo.findOlderThan(agentContext, cutoffMs, maxBatch, connectionIdAllowList)
 
       const byConnectionMap: Record<string, number> = {}
-      for (const r of filtered) {
+      for (const r of candidates) {
         byConnectionMap[r.connectionId] = (byConnectionMap[r.connectionId] ?? 0) + 1
       }
       const byConnection = Object.entries(byConnectionMap)
@@ -151,9 +150,15 @@ export function registerAdminEndpoints(app: Express): void {
 
       let deleted = 0
       if (!dryRun) {
-        for (const r of filtered) {
-          await repo.deleteById(agentContext, r.id)
-          deleted++
+        for (const r of candidates) {
+          try {
+            await repo.deleteById(agentContext, r.id)
+            deleted++
+          } catch (err) {
+            // Record already removed by a concurrent takeFromQueue dispatch — safe to skip.
+            if (err instanceof RecordNotFoundError) continue
+            throw err
+          }
         }
       }
 
@@ -162,7 +167,7 @@ export function registerAdminEndpoints(app: Express): void {
         hop: 'mediator.admin.drain.end',
         span_id: spanId,
         duration_ms: elapsedMs,
-        notes: `scanned=${olderRecords.length} matched=${filtered.length} deleted=${deleted} dryRun=${dryRun}`,
+        notes: `scanned=${candidates.length} deleted=${deleted} dryRun=${dryRun}`,
       })
 
       res.json({
@@ -170,16 +175,10 @@ export function registerAdminEndpoints(app: Express): void {
         dryRun,
         olderThanHours,
         cutoffIso,
-        scanned: olderRecords.length,
+        scanned: candidates.length,
         ...(dryRun
-          ? {
-              wouldDelete: filtered.length,
-              wouldKeep: olderRecords.length - filtered.length,
-            }
-          : {
-              deleted,
-              remaining: filtered.length - deleted,
-            }),
+          ? { wouldDelete: candidates.length }
+          : { deleted, alreadyGone: candidates.length - deleted }),
         byConnection: dryRun
           ? byConnection.map(({ connId, count }) => ({ connId, wouldDelete: count }))
           : byConnection.map(({ connId, count }) => ({ connId, deleted: count })),

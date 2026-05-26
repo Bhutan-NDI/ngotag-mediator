@@ -7,9 +7,18 @@ import {
   InMemoryLruCache,
   LogLevel,
   MediatorModule,
+  MessagePickupModule,
+  MessagePickupEventTypes,
   OutOfBandRole,
   OutOfBandState,
+  TransportEventTypes,
   WalletConfig,
+} from '@credo-ts/core'
+import type {
+  MessagePickupLiveSessionSavedEvent,
+  MessagePickupLiveSessionRemovedEvent,
+  TransportSessionSavedEvent,
+  TransportSessionRemovedEvent,
 } from '@credo-ts/core'
 import { HttpInboundTransport, WsInboundTransport, agentDependencies } from '@credo-ts/node'
 import { ariesAskar } from '@hyperledger/aries-askar-nodejs'
@@ -18,7 +27,7 @@ import type { Socket } from 'net'
 import express from 'express'
 import { Server } from 'ws'
 
-import { AGENT_ENDPOINTS, AGENT_NAME, AGENT_PORT, LOG_LEVEL, POSTGRES_HOST, WALLET_KEY, WALLET_NAME, MESSAGE_FORWARDING_STRATEGY, WALLET_DB_MAX_CONNECTIONS, WALLET_DB_MIN_CONNECTIONS, WALLET_DB_IDLE_TIMEOUT, WALLET_DB_CONNECT_TIMEOUT, USE_PUSH_NOTIFICATIONS } from './constants'
+import { AGENT_ENDPOINTS, AGENT_NAME, AGENT_PORT, LOG_LEVEL, POSTGRES_HOST, WALLET_KEY, WALLET_NAME, MESSAGE_FORWARDING_STRATEGY, WALLET_DB_MAX_CONNECTIONS, WALLET_DB_MIN_CONNECTIONS, WALLET_DB_IDLE_TIMEOUT, WALLET_DB_CONNECT_TIMEOUT, USE_PUSH_NOTIFICATIONS, WS_KEEPALIVE_ENABLED, WS_KEEPALIVE_INTERVAL_MS } from './constants'
 import { askarPostgresConfig } from './database'
 import { Logger } from './logger'
 import { emitStructured, makeSpanId, monoNow, tryExtractRecipientKeyShort, tryExtractJweFp } from './logger/StructuredLogger'
@@ -65,7 +74,14 @@ function getForwardingStrategy(): MessageForwardingStrategy {
 
 function createModules() {
   const modules = {
+    // storageModule registers InjectionSymbols.MessagePickupRepository (StorageServiceMessageQueue).
+    // It MUST stay ahead of messagePickup so the module sees the repo already registered and skips
+    // its in-memory default.
     storageModule: new StorageMessageQueueModule(),
+    // Explicit MessagePickupModule registration. Credo auto-adds a default one via
+    // extendModulesWithDefaultModules, but declaring it here makes the live-mode wiring auditable
+    // and lets us pin maximumBatchSize (how many queued messages a single live delivery flushes).
+    messagePickup: new MessagePickupModule({ maximumBatchSize: 10 }),
     cache: new CacheModule({
       cache: new InMemoryLruCache({ limit: 500 }),
     }),
@@ -214,6 +230,15 @@ export async function createAgent() {
       })
     })
 
+    // Keepalive: mark the socket alive on connect and on every pong. The heartbeat interval
+    // below pings periodically and terminates sockets that stop responding, while keeping
+    // healthy idle sockets from being dropped by NAT / ALB idle timeout (which would evict
+    // the LiveMode session).
+    ;(socket as unknown as { isAlive: boolean }).isAlive = true
+    socket.on('pong', () => {
+      ;(socket as unknown as { isAlive: boolean }).isAlive = true
+    })
+
     socket.on('close', () => {
       wsSessionClosed()
       emitStructured(LogLevel.info, {
@@ -224,6 +249,28 @@ export async function createAgent() {
       })
     })
   })
+
+  // WebSocket keepalive heartbeat. ws tracks connected clients in socketServer.clients.
+  // Each tick: terminate sockets that didn't pong since the last tick, then ping the rest.
+  if (WS_KEEPALIVE_ENABLED) {
+    const heartbeat = setInterval(() => {
+      for (const client of socketServer.clients) {
+        const tracked = client as unknown as { isAlive?: boolean }
+        if (tracked.isAlive === false) {
+          client.terminate()
+          continue
+        }
+        tracked.isAlive = false
+        try {
+          client.ping()
+        } catch {
+          // ignore — a failing ping means the socket is already gone
+        }
+      }
+    }, WS_KEEPALIVE_INTERVAL_MS)
+    if (heartbeat.unref) heartbeat.unref()
+    socketServer.on('close', () => clearInterval(heartbeat))
+  }
 
   // Register all Transports
   agent.registerInboundTransport(httpInboundTransport)
@@ -250,6 +297,53 @@ export async function createAgent() {
   })
 
   await agent.initialize()
+
+  // LiveMode + transport-session lifecycle instrumentation.
+  // Under QueueAndLiveModeDelivery, a forward is only live-pushed if getLiveModeSession()
+  // returns a session at queue time. These events reveal whether the mobile's
+  // `live_delivery:true` ever registers a session, and how quickly it is evicted (the
+  // session service drops the live session on every TransportSessionRemoved, i.e. WS close).
+  // Correlate livemode.session.* with transport.session.* and ws.session.* to tell apart
+  // "never registered" (mobile-side) from "registered then churned away" (WS instability).
+  agent.events
+    .observable<MessagePickupLiveSessionSavedEvent>(MessagePickupEventTypes.LiveSessionSaved)
+    .subscribe((event) => {
+      emitStructured(LogLevel.info, {
+        hop: 'mediator.livemode.session.saved',
+        flow: 'lifecycle',
+        conn_id: event.payload.session.connectionId ?? '',
+        notes: `protocol=${event.payload.session.protocolVersion} role=${event.payload.session.role}`,
+      })
+    })
+  agent.events
+    .observable<MessagePickupLiveSessionRemovedEvent>(MessagePickupEventTypes.LiveSessionRemoved)
+    .subscribe((event) => {
+      emitStructured(LogLevel.info, {
+        hop: 'mediator.livemode.session.removed',
+        flow: 'lifecycle',
+        conn_id: event.payload.session.connectionId ?? '',
+      })
+    })
+  agent.events
+    .observable<TransportSessionSavedEvent>(TransportEventTypes.TransportSessionSaved)
+    .subscribe((event) => {
+      emitStructured(LogLevel.info, {
+        hop: 'mediator.transport.session.saved',
+        flow: 'lifecycle',
+        conn_id: event.payload.session.connectionId ?? '',
+        notes: `transport=${event.payload.session.type}`,
+      })
+    })
+  agent.events
+    .observable<TransportSessionRemovedEvent>(TransportEventTypes.TransportSessionRemoved)
+    .subscribe((event) => {
+      emitStructured(LogLevel.info, {
+        hop: 'mediator.transport.session.removed',
+        flow: 'lifecycle',
+        conn_id: event.payload.session.connectionId ?? '',
+        notes: `transport=${event.payload.session.type}`,
+      })
+    })
 
   // Inject agent reference into the admin module so /admin/queue/drain can resolve
   // the message repository at request time.

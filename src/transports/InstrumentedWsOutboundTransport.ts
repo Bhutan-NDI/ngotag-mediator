@@ -14,8 +14,12 @@ export class InstrumentedWsOutboundTransport extends WsOutboundTransport {
     const jweFp = tryExtractJweFp(outboundPackage.payload)
     const jweFpIn = requestContext.getStore()?.jweFpIn ?? ''
 
-    // WsOutboundTransport is only used for mobile recipients (never for the controller,
-    // which uses HttpOutboundTransport). Every sendMessage here is a live-delivery decision.
+    // NOTE: this fires only when Credo opens a NEW outbound WS to a recipient endpoint.
+    // It does NOT fire for LiveMode/pickup delivery to a mobile that connected inbound — that
+    // path replies over the existing transport session (MessageSender.sendMessageToSession →
+    // session.send), bypassing this transport. So absence of these events does not mean live
+    // delivery isn't happening; use the mediator.livemode.session.* / transport.session.*
+    // events (wired in agent.ts) to observe LiveMode instead.
     emitStructured(LogLevel.info, {
       hop: 'mediator.forward.strategy.decision',
       conn_id: outboundPackage.connectionId ?? '',

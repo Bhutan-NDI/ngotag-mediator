@@ -7,7 +7,7 @@ import type {
   MessagePickupRepository,
 } from '@credo-ts/core'
 
-import { injectable, AgentContext, utils, LogLevel } from '@credo-ts/core'
+import { injectable, AgentContext, utils, LogLevel, RecordNotFoundError } from '@credo-ts/core'
 
 import { MessageRecord } from './MessageRecord'
 import { MessageRepository } from './MessageRepository'
@@ -171,7 +171,13 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
     const { messageIds } = options
 
     const deletePromises = messageIds.map((messageId) =>
-      this.messageRepository.deleteById(this.agentContext, messageId)
+      this.messageRepository.deleteById(this.agentContext, messageId).catch((err) => {
+        // Record already removed by takeFromQueue (at-most-once dispatch). Credo's V2
+        // messages-received handler calls removeMessages with the same IDs after the
+        // wallet ACKs — tolerate the missing record rather than surfacing a spurious error.
+        if (err instanceof RecordNotFoundError) return
+        throw err
+      })
     )
 
     await Promise.all(deletePromises)

@@ -13,6 +13,8 @@ export type HopName =
   | 'mediator.queue.write.start'
   | 'mediator.queue.write.end'
   | 'mediator.queue.depth.sample'
+  | 'mediator.admin.drain.start'
+  | 'mediator.admin.drain.end'
   | 'mediator.live.delivery.start'
   | 'mediator.live.delivery.end'
   | 'mediator.outbound.send.start'

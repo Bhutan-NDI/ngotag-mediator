@@ -62,6 +62,25 @@ export class MessageRepository extends Repository<MessageRecord> {
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
   }
 
+  // Used by /admin/queue/drain. Askar tag filters don't support range comparisons,
+  // so we page through `category` records (capped by `limit`) and filter by createdAt in JS.
+  // Returns oldest-first up to `limit`.
+  public async findOlderThan(agentContext: AgentContext, cutoffMs: number, limit: number) {
+    const wallet = agentContext.wallet as unknown as AskarWallet
+
+    const entries = await wallet.withSession((session) =>
+      session.fetchAll({
+        category: MessageRecord.type,
+        limit,
+      })
+    )
+
+    return entries
+      .map((entry) => this.entryToRecord(entry))
+      .filter((record) => record.createdAt.getTime() < cutoffMs)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+  }
+
   public async getQueueStats(agentContext: AgentContext): Promise<{
     total: number
     oldestAgeMs: number

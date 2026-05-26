@@ -51,7 +51,7 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
   }
 
   public async takeFromQueue(options: TakeFromQueueOptions): Promise<QueuedMessage[]> {
-    const { connectionId, limit, deleteMessages } = options
+    const { connectionId, limit } = options
 
     if (limit === 0) {
       return []
@@ -69,15 +69,12 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
 
     const messageRecords = await this.messageRepository.findByConnectionId(this.agentContext, connectionId, limit)
 
-    this.agentContext.config.logger.debug(
-      `Taking ${messageRecords.length} messages from queue for connection ${connectionId} with deleteMessages=${String(
-        deleteMessages
-      )}`
-    )
-
-    if (deleteMessages) {
-      this.removeMessages({ connectionId, messageIds: messageRecords.map((msg) => msg.id) })
-    }
+    // Always delete on dispatch (at-most-once delivery). The PickupV2 protocol design
+    // holds messages until messages-received, but the wallet does not reliably send
+    // messages-received — this causes the queue to grow unboundedly and re-deliver
+    // stale messages on every new arrival, breaking the controller's credential/proof
+    // state machines with duplicate DIDComm messages.
+    await this.removeMessages({ connectionId, messageIds: messageRecords.map((msg) => msg.id) })
 
     const queuedMessages = messageRecords.map((messageRecord) => ({
       id: messageRecord.id,
@@ -96,7 +93,6 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       conn_id: connectionId,
       duration_ms: durationMs(startMono),
       message_count: queuedMessages.length,
-      delete_messages: deleteMessages ?? false,
       dispatched_jwe_fps: dispatchedFingerprints.filter(Boolean),
     })
 

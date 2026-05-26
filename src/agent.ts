@@ -31,7 +31,7 @@ import { startGauges } from './instrumentation/gauges'
 import { wsSessionOpened, wsSessionClosed, registerQueueAccessor } from './instrumentation/metrics'
 import { InjectionSymbols } from '@credo-ts/core'
 import { StorageServiceMessageQueue } from './storage/StorageMessageQueue'
-import { registerAdminEndpoints } from './instrumentation/adminEndpoint'
+import { registerAdminEndpoints, wireQueueDrain } from './instrumentation/adminEndpoint'
 import { MessageForwardingStrategy } from '@credo-ts/core/build/modules/routing/MessageForwardingStrategy'
 
 function getForwardingStrategy(): MessageForwardingStrategy {
@@ -250,6 +250,10 @@ export async function createAgent() {
   })
 
   await agent.initialize()
+
+  // Inject agent reference into the admin module so /admin/queue/drain can resolve
+  // the message repository at request time.
+  wireQueueDrain(agent)
 
   // Register the queue-depth accessor so the 10s gauge snapshot can include
   // queue_depth_total / queue_oldest_age_ms / queue_depth_top10.

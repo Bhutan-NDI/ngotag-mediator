@@ -62,6 +62,39 @@ export class MessageRepository extends Repository<MessageRecord> {
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
   }
 
+  // Used by /admin/queue/drain. Askar tag filters don't support range comparisons and
+  // fetchAll has no cursor/offset API, so we do a bounded in-memory scan:
+  //   - Fetch up to scanLimit = min(limit × 20, 10 000) records from storage.
+  //   - Apply the age predicate and optional allowlist BEFORE slicing to limit,
+  //     so newer records near the front of storage cannot shadow older stale ones.
+  // Returns oldest-first up to `limit` matching records.
+  public async findOlderThan(
+    agentContext: AgentContext,
+    cutoffMs: number,
+    limit: number,
+    connectionIdAllowList?: string[] | null
+  ) {
+    const wallet = agentContext.wallet as unknown as AskarWallet
+
+    const scanLimit = Math.min(limit * 20, 10_000)
+    const entries = await wallet.withSession((session) =>
+      session.fetchAll({
+        category: MessageRecord.type,
+        limit: scanLimit,
+      })
+    )
+
+    return entries
+      .map((entry) => this.entryToRecord(entry))
+      .filter((record) => {
+        if (record.createdAt.getTime() >= cutoffMs) return false
+        if (connectionIdAllowList && !connectionIdAllowList.includes(record.connectionId)) return false
+        return true
+      })
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .slice(0, limit)
+  }
+
   public async getQueueStats(agentContext: AgentContext): Promise<{
     total: number
     oldestAgeMs: number

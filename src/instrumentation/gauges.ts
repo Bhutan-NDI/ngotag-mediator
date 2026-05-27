@@ -54,7 +54,7 @@ export function startGauges(): void {
       }
     }
 
-    emitStructured(LogLevel.info, {
+    emitStructured(LogLevel.trace, {
       hop: 'mediator.gauge.snapshot',
       flow: 'lifecycle',
       ...snap,

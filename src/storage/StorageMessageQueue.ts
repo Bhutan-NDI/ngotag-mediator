@@ -59,7 +59,7 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
 
     const spanId = makeSpanId()
     const startMono = monoNow()
-    emitStructured(LogLevel.info, {
+    emitStructured(LogLevel.trace, {
       hop: 'mediator.pickup.batch.dispatch.start',
       flow: 'pickup',
       span_id: spanId,
@@ -86,7 +86,7 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
     // that was queued). Lets the analyst join dispatch events to the original queue write.
     const dispatchedFingerprints = queuedMessages.map((m) => tryExtractJweFp(m.encryptedMessage))
 
-    emitStructured(LogLevel.info, {
+    emitStructured(LogLevel.trace, {
       hop: 'mediator.pickup.batch.dispatch.end',
       flow: 'pickup',
       span_id: spanId,
@@ -112,7 +112,7 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
     const jweFpOut = tryExtractJweFp(payload)
 
     // Log the forward strategy decision: this method is called only when queuing is chosen.
-    emitStructured(LogLevel.info, {
+    emitStructured(LogLevel.trace, {
       hop: 'mediator.forward.strategy.decision',
       conn_id: connectionId,
       jwe_fp_in: jweFpIn,
@@ -122,7 +122,7 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
 
     const spanId = makeSpanId()
     const startMono = monoNow()
-    emitStructured(LogLevel.info, {
+    emitStructured(LogLevel.trace, {
       hop: 'mediator.queue.write.start',
       span_id: spanId,
       conn_id: connectionId,
@@ -142,7 +142,7 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
     )
 
     recordQueueWrite()
-    emitStructured(LogLevel.info, {
+    emitStructured(LogLevel.trace, {
       hop: 'mediator.queue.write.end',
       span_id: spanId,
       conn_id: connectionId,
@@ -152,7 +152,7 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
     })
     // Count is fire-and-forget — the SELECT COUNT must not block the delivery path
     void this.messageRepository.countByConnectionId(this.agentContext, connectionId).then((queueDepth) => {
-      emitStructured(LogLevel.info, {
+      emitStructured(LogLevel.trace, {
         hop: 'mediator.queue.depth.sample',
         conn_id: connectionId,
         queue_depth_after: queueDepth,
@@ -205,13 +205,13 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
       this.agentContext.config.logger.info(`Sending notification to ${pushNotificationFcmRecord?.connectionId}`)
       const pushSpanId = makeSpanId()
       const pushStart = monoNow()
-      emitStructured(LogLevel.info, {
+      emitStructured(LogLevel.trace, {
         hop: 'mediator.push.send.start',
         span_id: pushSpanId,
         conn_id: connectionId,
       })
       await this.processNotification(message)
-      emitStructured(LogLevel.info, {
+      emitStructured(LogLevel.trace, {
         hop: 'mediator.push.send.end',
         span_id: pushSpanId,
         conn_id: connectionId,

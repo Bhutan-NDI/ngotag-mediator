@@ -124,7 +124,7 @@ export function registerAdminEndpoints(app: Express): void {
     const spanId = makeSpanId()
     const startMono = monoNow()
 
-    emitStructured(LogLevel.info, {
+    emitStructured(LogLevel.trace, {
       hop: 'mediator.admin.drain.start',
       span_id: spanId,
       notes: `olderThanHours=${olderThanHours} dryRun=${dryRun} maxBatch=${maxBatch} allowList=${
@@ -163,7 +163,7 @@ export function registerAdminEndpoints(app: Express): void {
       }
 
       const elapsedMs = durationMs(startMono)
-      emitStructured(LogLevel.info, {
+      emitStructured(LogLevel.trace, {
         hop: 'mediator.admin.drain.end',
         span_id: spanId,
         duration_ms: elapsedMs,

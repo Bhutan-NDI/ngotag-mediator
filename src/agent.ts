@@ -164,7 +164,7 @@ export async function createAgent() {
       const rawBody = typeof req.body === 'string' ? req.body : ''
       const recipientKeyShort = rawBody ? tryExtractRecipientKeyShort(rawBody) : ''
       const jweFpIn = rawBody ? tryExtractJweFp(rawBody) : ''
-      emitStructured(LogLevel.debug, {
+      emitStructured(LogLevel.trace, {
         hop: 'mediator.http.inbound.received',
         span_id: spanId,
         jwe_fp: jweFpIn,
@@ -186,7 +186,7 @@ export async function createAgent() {
   socketServer.on('connection', (socket) => {
     const sessionId = makeSpanId()
     wsSessionOpened()
-    emitStructured(LogLevel.info, {
+    emitStructured(LogLevel.trace, {
       hop: 'mediator.ws.session.opened',
       flow: 'lifecycle',
       span_id: sessionId,
@@ -220,7 +220,7 @@ export async function createAgent() {
       const raw = typeof data === 'string' ? data : Buffer.isBuffer(data) ? data.toString('utf8') : ''
       const recipientKeyShort = raw ? tryExtractRecipientKeyShort(raw) : ''
       const jweFpIn = raw ? tryExtractJweFp(raw) : ''
-      emitStructured(LogLevel.debug, {
+      emitStructured(LogLevel.trace, {
         hop: 'mediator.ws.inbound.received',
         span_id: makeSpanId(),
         jwe_fp: jweFpIn,
@@ -241,7 +241,7 @@ export async function createAgent() {
 
     socket.on('close', () => {
       wsSessionClosed()
-      emitStructured(LogLevel.info, {
+      emitStructured(LogLevel.trace, {
         hop: 'mediator.ws.session.closed',
         flow: 'lifecycle',
         span_id: sessionId,
@@ -308,7 +308,7 @@ export async function createAgent() {
   agent.events
     .observable<MessagePickupLiveSessionSavedEvent>(MessagePickupEventTypes.LiveSessionSaved)
     .subscribe((event) => {
-      emitStructured(LogLevel.info, {
+      emitStructured(LogLevel.trace, {
         hop: 'mediator.livemode.session.saved',
         flow: 'lifecycle',
         conn_id: event.payload.session.connectionId ?? '',
@@ -318,7 +318,7 @@ export async function createAgent() {
   agent.events
     .observable<MessagePickupLiveSessionRemovedEvent>(MessagePickupEventTypes.LiveSessionRemoved)
     .subscribe((event) => {
-      emitStructured(LogLevel.info, {
+      emitStructured(LogLevel.trace, {
         hop: 'mediator.livemode.session.removed',
         flow: 'lifecycle',
         conn_id: event.payload.session.connectionId ?? '',
@@ -327,7 +327,7 @@ export async function createAgent() {
   agent.events
     .observable<TransportSessionSavedEvent>(TransportEventTypes.TransportSessionSaved)
     .subscribe((event) => {
-      emitStructured(LogLevel.info, {
+      emitStructured(LogLevel.trace, {
         hop: 'mediator.transport.session.saved',
         flow: 'lifecycle',
         conn_id: event.payload.session.connectionId ?? '',
@@ -337,7 +337,7 @@ export async function createAgent() {
   agent.events
     .observable<TransportSessionRemovedEvent>(TransportEventTypes.TransportSessionRemoved)
     .subscribe((event) => {
-      emitStructured(LogLevel.info, {
+      emitStructured(LogLevel.trace, {
         hop: 'mediator.transport.session.removed',
         flow: 'lifecycle',
         conn_id: event.payload.session.connectionId ?? '',
@@ -366,7 +366,7 @@ export async function createAgent() {
 
   startGauges()
 
-  emitStructured(LogLevel.info, {
+  emitStructured(LogLevel.trace, {
     hop: 'mediator.config.dump',
     flow: 'lifecycle',
     notes: 'effective config at startup',

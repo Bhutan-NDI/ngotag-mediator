@@ -20,7 +20,7 @@ export class InstrumentedWsOutboundTransport extends WsOutboundTransport {
     // session.send), bypassing this transport. So absence of these events does not mean live
     // delivery isn't happening; use the mediator.livemode.session.* / transport.session.*
     // events (wired in agent.ts) to observe LiveMode instead.
-    emitStructured(LogLevel.info, {
+    emitStructured(LogLevel.trace, {
       hop: 'mediator.forward.strategy.decision',
       conn_id: outboundPackage.connectionId ?? '',
       jwe_fp: jweFp,
@@ -28,7 +28,7 @@ export class InstrumentedWsOutboundTransport extends WsOutboundTransport {
       decision: 'live',
     })
 
-    emitStructured(LogLevel.info, {
+    emitStructured(LogLevel.trace, {
       hop: 'mediator.live.delivery.start',
       span_id: spanId,
       jwe_fp: jweFp,
@@ -39,7 +39,7 @@ export class InstrumentedWsOutboundTransport extends WsOutboundTransport {
 
     try {
       await super.sendMessage(outboundPackage)
-      emitStructured(LogLevel.info, {
+      emitStructured(LogLevel.trace, {
         hop: 'mediator.live.delivery.end',
         span_id: spanId,
         jwe_fp: jweFp,
@@ -50,7 +50,7 @@ export class InstrumentedWsOutboundTransport extends WsOutboundTransport {
         status: 'ok',
       })
     } catch (err) {
-      emitStructured(LogLevel.info, {
+      emitStructured(LogLevel.trace, {
         hop: 'mediator.live.delivery.end',
         span_id: spanId,
         jwe_fp: jweFp,

@@ -1,9 +1,10 @@
 import { LogLevel } from '@credo-ts/core'
 
-// Default threshold for emitStructured() instrumentation hops. At `warn`, all the info/debug
-// trace hops (queue.write, pickup.batch.dispatch, push.send, gauge.snapshot, livemode/transport
-// session events, etc.) are suppressed — production stays quiet by default. Raise it to `info`
-// or `debug` at runtime via POST /admin/log-level when investigating; no redeploy needed.
+// Default threshold for emitStructured() instrumentation hops. The instrumentation emits at
+// `trace`, so at the `warn` default every hop (queue.write, pickup.batch.dispatch, push.send,
+// gauge.snapshot, livemode/transport session events, etc.) is suppressed — production stays
+// quiet by default. To capture them, set the level to `trace` at runtime via
+// POST /admin/log-level (the deepest, explicitly-enabled level); no redeploy needed.
 let _level: LogLevel = LogLevel.warn
 
 export function getDebugLogLevel(): LogLevel {

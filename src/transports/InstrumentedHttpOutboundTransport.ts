@@ -13,7 +13,7 @@ export class InstrumentedHttpOutboundTransport extends HttpOutboundTransport {
     const jweFp = tryExtractJweFp(outboundPackage.payload)
     const jweFpIn = requestContext.getStore()?.jweFpIn ?? ''
 
-    emitStructured(LogLevel.info, {
+    emitStructured(LogLevel.trace, {
       hop: 'mediator.outbound.send.start',
       span_id: spanId,
       jwe_fp: jweFp,
@@ -26,7 +26,7 @@ export class InstrumentedHttpOutboundTransport extends HttpOutboundTransport {
       await super.sendMessage(outboundPackage)
       const elapsed = durationMs(startMono)
       recordOutboundMs(elapsed)
-      emitStructured(LogLevel.info, {
+      emitStructured(LogLevel.trace, {
         hop: 'mediator.outbound.send.end',
         span_id: spanId,
         jwe_fp: jweFp,
@@ -37,7 +37,7 @@ export class InstrumentedHttpOutboundTransport extends HttpOutboundTransport {
         status: 'ok',
       })
     } catch (err) {
-      emitStructured(LogLevel.info, {
+      emitStructured(LogLevel.trace, {
         hop: 'mediator.outbound.send.end',
         span_id: spanId,
         jwe_fp: jweFp,

@@ -24,6 +24,10 @@ export type HopName =
   | 'mediator.pickup.batch.dispatch.end'
   | 'mediator.push.send.start'
   | 'mediator.push.send.end'
+  | 'mediator.livemode.session.saved'
+  | 'mediator.livemode.session.removed'
+  | 'mediator.transport.session.saved'
+  | 'mediator.transport.session.removed'
   | 'mediator.gauge.snapshot'
 
 export type FlowType =

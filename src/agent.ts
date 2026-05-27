@@ -366,7 +366,7 @@ export async function createAgent() {
 
   startGauges()
 
-  emitStructured(LogLevel.trace, {
+  emitStructured(LogLevel.info, {
     hop: 'mediator.config.dump',
     flow: 'lifecycle',
     notes: 'effective config at startup',

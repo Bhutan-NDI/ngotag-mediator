@@ -47,4 +47,9 @@ export const ADMIN_TOKEN = process.env.ADMIN_TOKEN
 // QueueAndLiveModeDelivery falls back to slow pickup. A ping/pong heartbeat keeps healthy
 // sockets alive so the live session persists between forwards.
 export const WS_KEEPALIVE_ENABLED = process.env.WS_KEEPALIVE_ENABLED !== 'false'
-export const WS_KEEPALIVE_INTERVAL_MS = Number(process.env.WS_KEEPALIVE_INTERVAL_MS) || 30000
+export const WS_KEEPALIVE_INTERVAL_MS = (() => {
+  const raw = Number(process.env.WS_KEEPALIVE_INTERVAL_MS)
+  // Guard against negative, zero, NaN, or Infinity — any of which would cause setInterval
+  // to run immediately and continuously, terminating healthy sockets. Minimum is 5 s.
+  return Number.isFinite(raw) && raw > 0 ? Math.max(raw, 5_000) : 30_000
+})()
